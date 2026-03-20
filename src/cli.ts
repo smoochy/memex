@@ -94,4 +94,16 @@ program
     await serveCommand(parseInt(opts.port));
   });
 
+program
+  .command("mcp")
+  .description("Start MCP server (stdio transport)")
+  .action(async () => {
+    const { createMemexServer } = await import("./mcp/server.js");
+    const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+    const store = getStore();
+    const server = createMemexServer(store);
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  });
+
 program.parse();
