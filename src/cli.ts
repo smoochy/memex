@@ -99,19 +99,30 @@ program
   .command("sync")
   .description("Sync cards across devices via git")
   .option("--init", "Initialize sync")
-  .option("--auto <mode>", "Set auto sync: on|off")
   .option("--status", "Show sync status")
-  .argument("[remote]", "Remote repo URL (for --init)")
+  .argument("[arg]", "Remote URL (for --init) or on/off (toggle auto-sync)")
   .action(
     async (
-      remote: string | undefined,
-      opts: { init?: boolean; auto?: string; status?: boolean }
+      arg: string | undefined,
+      opts: { init?: boolean; status?: boolean }
     ) => {
       const home = process.env.MEMEX_HOME || join(homedir(), ".memex");
+
+      // memex sync on / memex sync off
+      if (arg === "on" || arg === "off") {
+        const result = await syncCommand(home, { auto: arg });
+        if (result.output) process.stdout.write(result.output + "\n");
+        if (result.error) {
+          process.stderr.write(result.error + "\n");
+          process.exit(1);
+        }
+        return;
+      }
+
       const result = await syncCommand(home, {
         ...opts,
-        remote,
-        init: opts.init || !!remote,
+        remote: arg,
+        init: opts.init || !!arg,
       });
       if (result.output) process.stdout.write(result.output + "\n");
       if (result.error) {
