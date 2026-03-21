@@ -2,6 +2,8 @@
 
 Persistent memory for AI coding agents. Your agent remembers what it learned across sessions.
 
+[中文](./README.zh.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Español](./README.es.md)
+
 ![memex timeline view](screenshot.png)
 
 ## What it does
@@ -15,6 +17,19 @@ Session 3: Agent organizes card network → detects orphans, rebuilds keyword in
 ```
 
 No vector database, no embeddings — just markdown files your agent (and you) can read.
+
+## Supported platforms
+
+| Platform | Integration | Experience |
+|----------|------------|------------|
+| **Claude Code** | Plugin (hooks + skills) | Best — auto-recall, slash commands, SessionStart hook |
+| **VS Code / Copilot** | MCP Server | 6 tools + AGENTS.md workflow |
+| **Cursor** | MCP Server | 6 tools + AGENTS.md workflow |
+| **Codex** | MCP Server | 6 tools + AGENTS.md workflow |
+| **Windsurf** | MCP Server | 6 tools + AGENTS.md workflow |
+| **Any MCP client** | MCP Server | 6 tools + AGENTS.md workflow |
+
+All platforms share the same `~/.memex/cards/` directory. A card written in Claude Code is instantly available in Cursor, Codex, or any other client.
 
 ## Install
 
@@ -43,15 +58,9 @@ This adds a memex section to `AGENTS.md` that teaches your agent when to recall 
 | **Claude Code** | `npm update -g @touchskyer/memex` (plugin updates from marketplace) |
 | **Codex / global install** | `npm update -g @touchskyer/memex` |
 
-## Browse your memory
+## Cross-platform sharing
 
-```bash
-memex serve
-```
-
-Opens a visual timeline of all your cards at `localhost:3939`.
-
-## Sync across devices
+All clients read and write the same `~/.memex/cards/` directory. Sync across devices with git:
 
 ```bash
 memex sync --init git@github.com:you/memex-cards.git
@@ -60,7 +69,13 @@ memex sync         # manual sync
 memex sync off     # disable auto-sync
 ```
 
-Cards are plain markdown — git handles merging and history.
+## Browse your memory
+
+```bash
+memex serve
+```
+
+Opens a visual timeline of all your cards at `localhost:3939`.
 
 ## CLI reference
 
