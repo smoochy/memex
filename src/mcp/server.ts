@@ -7,6 +7,9 @@ import { linksCommand } from "../commands/links.js";
 import { archiveCommand } from "../commands/archive.js";
 import { syncCommand } from "../commands/sync.js";
 import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
+import { HookRegistry } from "../lib/hooks.js";
+import { autoFetch, autoSync } from "../lib/sync.js";
+import { registerOperations } from "./operations.js";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,6 +131,14 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
       }
       return { content: [{ type: "text" as const, text: result.output || "Synced." }] };
     });
+
+    const hooks = new HookRegistry();
+    hooks.on("pre:recall", () => autoFetch(home));
+    hooks.on("pre:retro", () => autoFetch(home));
+    hooks.on("pre:organize", () => autoFetch(home));
+    hooks.on("post:retro", () => autoSync(home));
+    hooks.on("post:organize", () => autoSync(home));
+    registerOperations(server, store, hooks, home, () => clientName);
   }
 
   return server;
