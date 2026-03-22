@@ -5,7 +5,6 @@ import { searchCommand } from "../commands/search.js";
 import { readCommand } from "../commands/read.js";
 import { writeCommand } from "../commands/write.js";
 import { linksCommand } from "../commands/links.js";
-import { initCommand } from "../commands/init.js";
 import { stringifyFrontmatter } from "../lib/parser.js";
 import { GitAdapter, readSyncConfig } from "../lib/sync.js";
 import { z } from "zod";
@@ -130,14 +129,4 @@ export function registerOperations(
     return { content: [{ type: "text" as const, text: result.message }], isError: !result.success };
   });
 
-  // ---- init ----
-  server.registerTool("memex_init", {
-    description: "Optional: Create or update AGENTS.md in the current project with memex workflow instructions. This is NOT required — tool descriptions already guide agent behavior. Only use this if the editor benefits from per-project AGENTS.md (e.g. Codex). For cross-device sync setup, tell the user to run: memex sync --init <remote> && memex sync on",
-    inputSchema: z.object({
-      dir: z.string().optional().describe("Project directory (defaults to cwd)"),
-    }),
-  }, async ({ dir }) => {
-    const result = await initCommand(dir || process.cwd());
-    return { content: [{ type: "text" as const, text: result.output || result.error || "" }], isError: !result.success };
-  });
 }
