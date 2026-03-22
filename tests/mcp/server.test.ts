@@ -37,7 +37,7 @@ async function teardown() {
 describe("MCP server", () => {
   afterEach(teardown);
 
-  it("lists all 12 tools", async () => {
+  it("lists all 11 tools", async () => {
     await setup();
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
@@ -52,7 +52,6 @@ describe("MCP server", () => {
       "memex_recall",
       "memex_retro",
       "memex_search",
-      "memex_sync",
       "memex_write",
     ]);
   });
@@ -134,11 +133,4 @@ describe("MCP server", () => {
     expect(readResult.isError).toBe(true);
   });
 
-  it("memex_sync status shows not configured", async () => {
-    await setup();
-    const result = await client.callTool({ name: "memex_sync", arguments: { action: "status" } });
-    expect(result.isError).toBeFalsy();
-    const text = (result.content as Array<{ text: string }>)[0].text;
-    expect(text).toContain("not configured");
-  });
 });

@@ -5,7 +5,6 @@ import { readCommand } from "../commands/read.js";
 import { writeCommand } from "../commands/write.js";
 import { linksCommand } from "../commands/links.js";
 import { archiveCommand } from "../commands/archive.js";
-import { syncCommand } from "../commands/sync.js";
 import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
 import { HookRegistry } from "../lib/hooks.js";
 import { autoFetch, autoSync } from "../lib/sync.js";
@@ -28,13 +27,6 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   let clientName = "mcp";
   const origConnect = server.connect.bind(server);
   server.connect = async (transport) => {
-    const origSend = transport.send?.bind(transport);
-    if (origSend) {
-      transport.send = async (msg: any) => {
-        // Intercept initialize response to read client info from request
-        return origSend(msg);
-      };
-    }
     // Listen for messages to capture client info
     const origOnMessage = transport.onmessage;
     transport.onmessage = (msg: any) => {
@@ -43,11 +35,12 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
       }
       if (origOnMessage) origOnMessage(msg);
     };
-    return origConnect(transport);
+    await origConnect(transport);
+    if (home) await autoFetch(home);
   };
 
   server.registerTool("memex_search", {
-    description: "Search Zettelkasten memory cards by keyword, or list all cards if no query. Use at the start of a task to recall relevant prior knowledge. Follow [[wikilinks]] in results by calling memex_read.",
+    description: "Low-level search. Prefer memex_recall for task-start workflows.",
     inputSchema: z.object({
       query: z.string().optional().describe("Search keyword. Omit to list all cards."),
       limit: z.number().optional().describe("Max results (default 10)"),
@@ -58,7 +51,7 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   });
 
   server.registerTool("memex_read", {
-    description: "Read a card's full content including frontmatter and body. Use after memex_search to get full context. Follow [[wikilinks]] to traverse related knowledge.",
+    description: "Low-level read. Use after memex_recall to drill into specific cards.",
     inputSchema: z.object({
       slug: z.string().describe("Card slug (e.g. 'my-card-name')"),
     }),
@@ -71,7 +64,7 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   });
 
   server.registerTool("memex_write", {
-    description: "Write or update a Zettelkasten card. Use after completing a task to save non-obvious insights. Content must include YAML frontmatter with title, created, and optional category fields, followed by markdown body with [[wikilinks]]. The source field is auto-filled with the client name.",
+    description: "Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically).",
     inputSchema: z.object({
       slug: z.string().describe("Card slug in kebab-case (e.g. 'my-insight')"),
       content: z.string().describe("Full card content: YAML frontmatter + markdown body"),
@@ -91,7 +84,7 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   });
 
   server.registerTool("memex_links", {
-    description: "Show link graph statistics for all cards, or inbound/outbound links for a specific card. Useful for understanding card connectivity and finding orphans.",
+    description: "Low-level link stats. Prefer memex_organize for maintenance workflows.",
     inputSchema: z.object({
       slug: z.string().optional().describe("Card slug. Omit for global stats."),
     }),
@@ -114,24 +107,6 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   });
 
   if (home) {
-    server.registerTool("memex_sync", {
-      description: "Sync memory cards across devices via git. Call after writing cards to keep them in sync. Use action 'status' to check sync state, 'auto_on'/'auto_off' to toggle auto-sync.",
-      inputSchema: z.object({
-        action: z.enum(["sync", "status", "auto_on", "auto_off"]).optional().describe("Action to perform (default: sync)"),
-      }),
-    }, async ({ action }) => {
-      const a = action || "sync";
-      const opts = {
-        status: a === "status",
-        auto: a === "auto_on" ? "on" : a === "auto_off" ? "off" : undefined,
-      };
-      const result = await syncCommand(home, opts);
-      if (!result.success) {
-        return { content: [{ type: "text" as const, text: result.error! }], isError: true };
-      }
-      return { content: [{ type: "text" as const, text: result.output || "Synced." }] };
-    });
-
     const hooks = new HookRegistry();
     hooks.on("pre:recall", () => autoFetch(home));
     hooks.on("pre:retro", () => autoFetch(home));
