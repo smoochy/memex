@@ -15,7 +15,6 @@ import { linksCommand } from "./commands/links.js";
 import { archiveCommand } from "./commands/archive.js";
 import { serveCommand } from "./commands/serve.js";
 import { syncCommand } from "./commands/sync.js";
-import { initCommand } from "./commands/init.js";
 
 function getStore(): CardStore {
   const home = process.env.MEMEX_HOME || join(homedir(), ".memex");
@@ -137,15 +136,6 @@ program
       }
     }
   );
-
-program
-  .command("init")
-  .description("Add memex instructions to AGENTS.md in current directory")
-  .action(async () => {
-    const result = await initCommand(process.cwd());
-    if (result.output) process.stdout.write(result.output + "\n");
-    if (!result.success) process.exit(1);
-  });
 
 program
   .command("mcp")

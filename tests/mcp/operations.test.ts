@@ -94,7 +94,7 @@ describe("High-level operations", () => {
       arguments: { slug: "test", title: "Test", body: "Content" },
     });
     const text = (result.content as Array<{ text: string }>)[0].text;
-    expect(text).toContain("memex init");
+    expect(text).toContain("memex sync --init");
   });
 
   it("memex_organize returns link stats", async () => {
@@ -117,6 +117,6 @@ describe("High-level operations", () => {
     expect(names).toContain("memex_organize");
     expect(names).toContain("memex_pull");
     expect(names).toContain("memex_push");
-    expect(names).toContain("memex_init");
+    expect(names).not.toContain("memex_init");
   });
 });

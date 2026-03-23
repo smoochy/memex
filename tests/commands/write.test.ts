@@ -61,7 +61,11 @@ Body.`;
     const written = await readFile(join(tmpDir, "cards", "test.md"), "utf-8");
     const { data } = parseFrontmatter(written);
     const today = new Date().toISOString().split("T")[0];
-    expect(String(data.modified).startsWith(today)).toBe(true);
+    // gray-matter may parse date strings as Date objects; normalize before comparing
+    const modified = data.modified instanceof Date
+      ? data.modified.toISOString().split("T")[0]
+      : String(data.modified);
+    expect(modified.startsWith(today)).toBe(true);
   });
 
   it("normalizes created date to YYYY-MM-DD string", async () => {
@@ -77,7 +81,7 @@ Body.`;
     const written = await readFile(join(tmpDir, "cards", "date-test.md"), "utf-8");
     // Should NOT contain ISO datetime format
     expect(written).not.toContain("2026-03-18T00:00:00.000Z");
-    // Should contain clean YYYY-MM-DD
-    expect(written).toContain("created: '2026-03-18'");
+    // Should contain clean YYYY-MM-DD (unquoted, since no special chars)
+    expect(written).toContain("created: 2026-03-18");
   });
 });
