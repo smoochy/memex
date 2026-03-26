@@ -18,10 +18,11 @@ import { serveCommand } from "./commands/serve.js";
 import { syncCommand } from "./commands/sync.js";
 import { importCommand } from "./commands/import.js";
 
-async function getStore(): Promise<CardStore> {
+async function getStore(opts?: { nested?: boolean }): Promise<CardStore> {
   const home = process.env.MEMEX_HOME || join(homedir(), ".memex");
   const config = await readConfig(home);
-  return new CardStore(join(home, "cards"), join(home, "archive"), config.nestedSlugs);
+  const nestedSlugs = opts?.nested ?? config.nestedSlugs;
+  return new CardStore(join(home, "cards"), join(home, "archive"), nestedSlugs);
 }
 
 async function readStdin(): Promise<string> {
@@ -39,8 +40,9 @@ program
   .command("search [query]")
   .description("Full-text search cards (body only), or list all if no query")
   .option("-l, --limit <n>", "Max results to return", "10")
-  .action(async (query: string | undefined, opts: { limit: string }) => {
-    const store = await getStore();
+  .option("--nested", "Use nested (path-preserving) slugs for this command")
+  .action(async (query: string | undefined, opts: { limit: string; nested?: boolean }) => {
+    const store = await getStore({ nested: opts.nested });
     const result = await searchCommand(store, query, { limit: parseInt(opts.limit) });
     if (result.output) process.stdout.write(result.output + "\n");
     process.exit(result.exitCode);
@@ -49,8 +51,9 @@ program
 program
   .command("read <slug>")
   .description("Read a card's full content")
-  .action(async (slug: string) => {
-    const store = await getStore();
+  .option("--nested", "Use nested (path-preserving) slugs for this command")
+  .action(async (slug: string, opts: { nested?: boolean }) => {
+    const store = await getStore({ nested: opts.nested });
     const result = await readCommand(store, slug);
     if (result.success) {
       process.stdout.write(result.content! + "\n");
