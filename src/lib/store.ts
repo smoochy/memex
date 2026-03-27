@@ -87,6 +87,7 @@ export class CardStore {
       if (entry.isDirectory()) {
         await this.walkDir(fullPath, results);
       } else if (entry.name.endsWith(".md")) {
+        // Use relative path for nested slugs to prevent collision
         const slug = this.nestedSlugs
           ? join(dir, entry.name)
               .replace(this.cardsDir + sep, "")
@@ -129,11 +130,15 @@ export class CardStore {
     const targetPath = existing ?? join(this.cardsDir, `${slug}.md`);
     this.assertSafePath(targetPath);
     await mkdir(dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, content, "utf-8");
+    // Atomic write: write to temp, then rename (prevents corruption on crash)
+    const tmpPath = targetPath + ".tmp";
+    await writeFile(tmpPath, content, "utf-8");
+    await rename(tmpPath, targetPath);
     this.invalidateCache();
   }
 
   async archiveCard(slug: string): Promise<void> {
+    validateSlug(slug);
     const path = await this.resolve(slug);
     if (!path) {
       try {
@@ -145,6 +150,12 @@ export class CardStore {
       }
     }
     const dest = join(this.archiveDir, `${slug}.md`);
+    // Ensure archive subdirectory exists and path is safe
+    const resolvedDest = resolve(dest);
+    const resolvedArchive = resolve(this.archiveDir);
+    if (!resolvedDest.startsWith(resolvedArchive + sep) && resolvedDest !== resolvedArchive) {
+      throw new Error(`Invalid slug: path escapes archive directory`);
+    }
     await mkdir(dirname(dest), { recursive: true });
     await rename(path, dest);
     this.invalidateCache();

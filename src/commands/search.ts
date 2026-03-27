@@ -35,22 +35,32 @@ export async function searchCommand(store: CardStore, query: string | undefined,
   const limit = rawLimit < 0 ? DEFAULT_LIMIT : rawLimit;
   const matchedCards: { slug: string; matchLine: string; matchCount: number }[] = [];
 
+  // Split query into tokens — ALL tokens must appear (AND logic)
+  const tokens = query.split(/\s+/).filter(Boolean);
+  const escapedTokens = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
   for (const card of cards) {
     const raw = await store.readCard(card.slug);
     const { data, content } = parseFrontmatter(raw);
     const title = String(data.title || card.slug);
-    // Search title + body, case-insensitive
-    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(escaped, "gi");
     const searchText = title + "\n" + content;
-    const matches = searchText.match(regex);
-    if (matches && matches.length > 0) {
-      // Find first matching line in body (use non-global regex to avoid lastIndex drift)
-      const lineRegex = new RegExp(escaped, "i");
-      const bodyLines = content.split("\n");
-      const matchLine = bodyLines.find((l) => lineRegex.test(l))?.trim() || "";
-      matchedCards.push({ slug: card.slug, matchLine, matchCount: matches.length });
+
+    // Every token must appear (case-insensitive)
+    const allMatch = escapedTokens.every((t) => new RegExp(t, "i").test(searchText));
+    if (!allMatch) continue;
+
+    // Count total token hits for ranking
+    let matchCount = 0;
+    for (const t of escapedTokens) {
+      const hits = searchText.match(new RegExp(t, "gi"));
+      if (hits) matchCount += hits.length;
     }
+
+    // Find first matching line (use first token for the preview line)
+    const lineRegex = new RegExp(escapedTokens[0], "i");
+    const bodyLines = content.split("\n");
+    const matchLine = bodyLines.find((l) => lineRegex.test(l))?.trim() || "";
+    matchedCards.push({ slug: card.slug, matchLine, matchCount });
   }
 
   if (matchedCards.length === 0) return { output: "", exitCode: 0 };
