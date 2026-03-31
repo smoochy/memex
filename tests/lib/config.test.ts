@@ -67,4 +67,76 @@ describe("readConfig", () => {
     const config = await readConfig(tmpDir);
     expect(config).toEqual({ nestedSlugs: false });
   });
+
+  // --- embeddingModel ---
+
+  it("reads embeddingModel from config file", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ embeddingModel: "text-embedding-3-large" }));
+    const config = await readConfig(tmpDir);
+    expect(config.embeddingModel).toBe("text-embedding-3-large");
+  });
+
+  it("treats non-string embeddingModel as undefined", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ embeddingModel: 42 }));
+    const config = await readConfig(tmpDir);
+    expect(config.embeddingModel).toBeUndefined();
+  });
+
+  // --- semanticWeight ---
+
+  it("reads semanticWeight from config file", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: 0.5 }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBe(0.5);
+  });
+
+  it("reads semanticWeight: 0 (full keyword)", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: 0 }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBe(0);
+  });
+
+  it("reads semanticWeight: 1 (full semantic)", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: 1 }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBe(1);
+  });
+
+  it("treats semanticWeight outside [0,1] as undefined", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: 1.5 }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBeUndefined();
+  });
+
+  it("treats negative semanticWeight as undefined", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: -0.1 }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBeUndefined();
+  });
+
+  it("treats non-number semanticWeight as undefined", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ semanticWeight: "high" }));
+    const config = await readConfig(tmpDir);
+    expect(config.semanticWeight).toBeUndefined();
+  });
+
+  // --- full config round-trip ---
+
+  it("reads all config fields together", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({
+      nestedSlugs: true,
+      searchDirs: ["archive"],
+      openaiApiKey: "sk-test",
+      embeddingModel: "text-embedding-3-large",
+      semanticWeight: 0.6,
+    }));
+    const config = await readConfig(tmpDir);
+    expect(config).toEqual({
+      nestedSlugs: true,
+      searchDirs: ["archive"],
+      openaiApiKey: "sk-test",
+      embeddingModel: "text-embedding-3-large",
+      semanticWeight: 0.6,
+    });
+  });
 });

@@ -6,6 +6,7 @@ export interface MemexConfig {
   searchDirs?: string[];
   openaiApiKey?: string;
   embeddingModel?: string;
+  semanticWeight?: number;
 }
 
 /**
@@ -24,6 +25,9 @@ export async function readConfig(memexHome: string): Promise<MemexConfig> {
       searchDirs: Array.isArray(parsed.searchDirs) ? parsed.searchDirs : undefined,
       openaiApiKey: typeof parsed.openaiApiKey === "string" ? parsed.openaiApiKey : undefined,
       embeddingModel: typeof parsed.embeddingModel === "string" ? parsed.embeddingModel : undefined,
+      semanticWeight: typeof parsed.semanticWeight === "number" && parsed.semanticWeight >= 0 && parsed.semanticWeight <= 1
+        ? parsed.semanticWeight
+        : undefined,
     };
   } catch {
     // File doesn't exist or invalid JSON - return defaults
