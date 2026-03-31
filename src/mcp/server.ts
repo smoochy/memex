@@ -6,6 +6,7 @@ import { writeCommand } from "../commands/write.js";
 import { linksCommand } from "../commands/links.js";
 import { archiveCommand } from "../commands/archive.js";
 import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
+import { readConfig } from "../lib/config.js";
 import { HookRegistry } from "../lib/hooks.js";
 import { autoFetch, autoSync } from "../lib/sync.js";
 import { registerOperations } from "./operations.js";
@@ -44,9 +45,11 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
     inputSchema: z.object({
       query: z.string().optional().describe("Search keyword. Omit to list all cards."),
       limit: z.number().optional().describe("Max results (default 10)"),
+      semantic: z.boolean().optional().describe("Use embedding-based semantic search"),
     }),
-  }, async ({ query, limit }) => {
-    const result = await searchCommand(store, query, { limit });
+  }, async ({ query, limit, semantic }) => {
+    const config = home ? await readConfig(home) : undefined;
+    const result = await searchCommand(store, query, { limit, semantic, config, memexHome: home });
     return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
   });
 
