@@ -159,10 +159,32 @@ program
         return;
       }
 
+      // memex sync push / memex sync pull
+      if (arg === "push" || arg === "pull") {
+        const result = await syncCommand(home, { action: arg as "push" | "pull" });
+        if (result.output) process.stdout.write(result.output + "\n");
+        if (result.error) {
+          process.stderr.write(result.error + "\n");
+          process.exit(1);
+        }
+        return;
+      }
+
+      // memex sync status (positional alias)
+      if (arg === "status") {
+        const result = await syncCommand(home, { status: true });
+        if (result.output) process.stdout.write(result.output + "\n");
+        if (result.error) {
+          process.stderr.write(result.error + "\n");
+          process.exit(1);
+        }
+        return;
+      }
+
       const result = await syncCommand(home, {
         ...opts,
-        remote: arg,
-        init: opts.init || !!arg,
+        remote: opts.init ? arg : undefined,
+        init: opts.init,
       });
       if (result.output) process.stdout.write(result.output + "\n");
       if (result.error) {
