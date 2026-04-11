@@ -1,7 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
 import { CardStore } from "../lib/store.js";
+import { autoSync } from "../lib/sync.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -88,6 +89,11 @@ function cardToFlomoContent(data: Record<string, unknown>, body: string): string
     data.tags.split(/[,\s]+/).filter(Boolean).forEach((t: string) => {
       tags.push(t.startsWith("#") ? t : `#${t}`);
     });
+  } else if (Array.isArray(data.tags)) {
+    (data.tags as string[]).forEach((t: string) => {
+      const s = String(t).trim();
+      if (s) tags.push(s.startsWith("#") ? s : `#${s}`);
+    });
   }
   if (tags.length > 0) {
     parts.push("");
@@ -114,7 +120,7 @@ async function pushSingleCard(
   const { data, content } = parseFrontmatter(raw);
 
   // Skip if already pushed
-  if (data.flomoPushedAt && !dryRun) {
+  if (data.flomoPushedAt) {
     return { slug, status: "skipped", message: `Already pushed at ${data.flomoPushedAt}` };
   }
 
@@ -129,6 +135,7 @@ async function pushSingleCard(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content: flomoContent }),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!response.ok) {
@@ -191,9 +198,14 @@ export async function flomoPushCommand(
 
       if (opts.source && data.source !== opts.source) continue;
       if (opts.tag) {
-        const cardTags = typeof data.tags === "string" ? data.tags : "";
+        const tagSet = new Set<string>();
+        if (typeof data.tags === "string") {
+          data.tags.split(/[,\s]+/).filter(Boolean).forEach((t: string) => tagSet.add(t));
+        } else if (Array.isArray(data.tags)) {
+          (data.tags as string[]).forEach((t: string) => tagSet.add(String(t).trim()));
+        }
         const cardCategory = typeof data.category === "string" ? data.category : "";
-        if (!cardTags.includes(opts.tag) && cardCategory !== opts.tag) continue;
+        if (!tagSet.has(opts.tag) && cardCategory !== opts.tag) continue;
       }
 
       filteredSlugs.push(card.slug);
@@ -209,6 +221,11 @@ export async function flomoPushCommand(
   for (const slug of slugs) {
     const result = await pushSingleCard(store, slug, config.webhookUrl, dryRun, fetchFn);
     results.push(result);
+  }
+
+  // Sync after push if any cards were modified
+  if (!dryRun && results.some(r => r.status === "pushed")) {
+    await autoSync(dirname(store.cardsDir));
   }
 
   const pushed = results.filter(r => r.status === "pushed").length;

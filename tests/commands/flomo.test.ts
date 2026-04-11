@@ -143,7 +143,7 @@ describe("flomoPushCommand", () => {
     expect(card).toContain("flomoPushedAt");
   });
 
-  it("skips already-pushed card", async () => {
+  it("dry-run skips already-pushed card (mirrors real behavior)", async () => {
     const mockFetch = createMockFetch();
     await writeTestCard("test-card", {
       title: "Test",
@@ -152,9 +152,10 @@ describe("flomoPushCommand", () => {
       flomoPushedAt: "2026-04-01",
     }, "Hello");
 
-    const result = await flomoPushCommand(store, testDir, "test-card", { fetchFn: mockFetch });
+    const result = await flomoPushCommand(store, testDir, "test-card", { dryRun: true, fetchFn: mockFetch });
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("⏭ test-card");
+    expect(result.output).toContain("Already pushed");
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -230,5 +231,50 @@ describe("flomoPushCommand", () => {
     const result = await flomoPushCommand(store, testDir, "nonexistent", { fetchFn: mockFetch });
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Card not found");
+  });
+
+  it("handles array-type tags in card content", async () => {
+    const mockFetch = createMockFetch();
+    // Write card with raw frontmatter that has array tags
+    const content = `---\ntitle: Test\ncreated: 2026-01-01\nsource: retro\ntags:\n  - foo\n  - bar\n---\nBody text`;
+    await store.writeCard("array-tag-card", content);
+
+    await flomoPushCommand(store, testDir, "array-tag-card", { fetchFn: mockFetch });
+
+    const call = mockFetch.mock.calls[0] as unknown[];
+    const body = JSON.parse((call[1] as { body: string }).body);
+    expect(body.content).toContain("#foo");
+    expect(body.content).toContain("#bar");
+  });
+
+  it("batch push with --tag filter uses exact match", async () => {
+    const mockFetch = createMockFetch();
+    await writeTestCard("card-eng", { title: "A", created: "2026-01-01", source: "retro", category: "engineering" }, "A");
+    await writeTestCard("card-eng2", { title: "B", created: "2026-01-01", source: "retro", category: "engine" }, "B");
+
+    const result = await flomoPushCommand(store, testDir, undefined, {
+      all: true,
+      tag: "engine",
+      fetchFn: mockFetch,
+    });
+    expect(result.exitCode).toBe(0);
+    // Should match only "engine", not "engineering"
+    expect(result.output).toContain("1 pushed");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips already-pushed card in non-dry-run mode", async () => {
+    const mockFetch = createMockFetch();
+    await writeTestCard("test-card", {
+      title: "Test",
+      created: "2026-01-01",
+      source: "retro",
+      flomoPushedAt: "2026-04-01",
+    }, "Hello");
+
+    const result = await flomoPushCommand(store, testDir, "test-card", { fetchFn: mockFetch });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("⏭ test-card");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
