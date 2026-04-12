@@ -1,12 +1,13 @@
 {
-  "tick": 7,
-  "unit": "F4.1",
-  "description": "Only 1 card from 22 memos. 经济金融 memos were knowledge dumps, Gartner memos severely outdated (2023-2024).",
-  "status": "completed",
+  "tick": 8,
+  "unit": "F4.2",
+  "description": "PASS. 1 card already reviewed in F3.2. Aggressive skip rate (21/22) is correct for knowledge dumps.",
+  "status": "in_progress",
   "artifacts": [
-    ".harness/nodes/F4.1/run_1/eval.md"
+    ".harness/nodes/F4.2/run_1/eval-curator.md",
+    ".harness/nodes/F4.2/run_1/eval-da.md"
   ],
-  "next_unit": "F4.2",
+  "next_unit": "F5.1",
   "blockers": [],
   "review_of_previous": "",
   "plan_file": ".harness/plan.md",
@@ -37,8 +38,8 @@
   ],
   "_written_by": "opc-harness",
   "_plan_hash": "20c58620f144bc27",
-  "_last_modified": "2026-04-12T11:47:03.831Z",
-  "_git_head": "1a31427fd48dec93f18dc2cbc94e6cb603a886a7",
+  "_last_modified": "2026-04-12T11:49:31.645Z",
+  "_git_head": "a25831e559f9aa146ad6bd5f4456db4986f53a59",
   "_tick_history": [
     {
       "unit": "F1.1",
@@ -74,6 +75,11 @@
       "unit": "F4.1",
       "tick": 7,
       "status": "completed"
+    },
+    {
+      "unit": "F4.2",
+      "tick": 8,
+      "status": "completed"
     }
   ],
   "_max_total_ticks": 66,
@@ -87,7 +93,7 @@
     "typecheck_script": false
   },
   "_last_review_evals": {
-    ".harness/nodes/F3.2/run_1/eval-curator.md": "b5e35556faa2175b",
-    ".harness/nodes/F3.2/run_1/eval-da.md": "729c93a4b321d155"
+    ".harness/nodes/F4.2/run_1/eval-curator.md": "a175286f83244984",
+    ".harness/nodes/F4.2/run_1/eval-da.md": "d6ce8b26262ee5d7"
   }
 }

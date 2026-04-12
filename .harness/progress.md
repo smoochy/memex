@@ -5,3 +5,4 @@
 - **Tick 5** [F3.1] (implement): 3 cards from 8 memos. Skipped biographical entries. — 2026-04-12T11:42:02.288Z
 - **Tick 6** [F3.2] (review): 2 reviewers, 0 red, multiple yellow. Fixed interest-rate-mismatch (added wikilinks). Other yellows are minor. — 2026-04-12T11:46:50.533Z
 - **Tick 7** [F4.1] (implement): Only 1 card from 22 memos. 经济金融 memos were knowledge dumps, Gartner memos severely outdated (2023-2024). — 2026-04-12T11:47:03.844Z
+- **Tick 8** [F4.2] (review): PASS. 1 card already reviewed in F3.2. Aggressive skip rate (21/22) is correct for knowledge dumps. — 2026-04-12T11:47:16.145Z
