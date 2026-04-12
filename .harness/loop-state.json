@@ -1,13 +1,12 @@
 {
-  "tick": 12,
-  "unit": "F6.2",
-  "description": "Curator PASS, DA PASS. 3 cards validated.",
+  "tick": 13,
+  "unit": "F7.1",
+  "description": "3 cards from 100 memos (97% skip - MSFT internal dominated)",
   "status": "completed",
   "artifacts": [
-    ".harness/nodes/F6.2/run_1/eval-curator.md",
-    ".harness/nodes/F6.2/run_1/eval-da.md"
+    ".harness/nodes/F7.1/run_1/eval.md"
   ],
-  "next_unit": "F7.1",
+  "next_unit": "F7.2",
   "blockers": [],
   "review_of_previous": "",
   "plan_file": ".harness/plan.md",
@@ -38,8 +37,8 @@
   ],
   "_written_by": "opc-harness",
   "_plan_hash": "20c58620f144bc27",
-  "_last_modified": "2026-04-12T12:15:33.825Z",
-  "_git_head": "a269fecbf341f8c63563ebeadb0321fea22e021d",
+  "_last_modified": "2026-04-12T12:17:34.032Z",
+  "_git_head": "36a0fa52ab5600199f5382379f17240d149dde8e",
   "_tick_history": [
     {
       "unit": "F1.1",
@@ -99,6 +98,11 @@
     {
       "unit": "F6.2",
       "tick": 12,
+      "status": "completed"
+    },
+    {
+      "unit": "F7.1",
+      "tick": 13,
       "status": "completed"
     }
   ],
