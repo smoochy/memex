@@ -1,13 +1,12 @@
 {
-  "tick": 18,
-  "unit": "F9.2",
-  "description": "Curator PASS, DA PASS.",
-  "status": "completed",
+  "tick": 19,
+  "unit": "F10.1",
+  "description": "0 cards from 34 memos — all personal notes, fiction, or one-liners",
+  "status": "in_progress",
   "artifacts": [
-    ".harness/nodes/F9.2/run_1/eval-curator.md",
-    ".harness/nodes/F9.2/run_1/eval-da.md"
+    ".harness/nodes/F10.1/run_1/eval.md"
   ],
-  "next_unit": "F10.1",
+  "next_unit": "F10.2",
   "blockers": [],
   "review_of_previous": "",
   "plan_file": ".harness/plan.md",
@@ -38,8 +37,8 @@
   ],
   "_written_by": "opc-harness",
   "_plan_hash": "20c58620f144bc27",
-  "_last_modified": "2026-04-12T12:21:44.655Z",
-  "_git_head": "03fed91e382077aa5b808dfb22b08c790fd30aeb",
+  "_last_modified": "2026-04-12T12:24:04.520Z",
+  "_git_head": "173465edc2ef13c29b176192ab6538b88f3669ce",
   "_tick_history": [
     {
       "unit": "F1.1",
@@ -129,6 +128,11 @@
     {
       "unit": "F9.2",
       "tick": 18,
+      "status": "completed"
+    },
+    {
+      "unit": "F10.1",
+      "tick": 19,
       "status": "completed"
     }
   ],
