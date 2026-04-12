@@ -305,6 +305,30 @@ describe("flomoPushCommand", () => {
     expect(result.output).toContain("No cards matched");
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  it("anti-loopback: skips flomo-sourced cards on single push", async () => {
+    const mockFetch = createMockFetch();
+    await writeTestCard("flomo-card", { title: "From Flomo", created: "2026-01-01", source: "flomo" }, "Body");
+
+    const result = await flomoPushCommand(store, testDir, "flomo-card", { fetchFn: mockFetch });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("anti-loopback");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("anti-loopback: excludes flomo-sourced cards from batch push", async () => {
+    const mockFetch = createMockFetch();
+    await writeTestCard("card-retro", { title: "Retro", created: "2026-01-01", source: "retro" }, "Body");
+    await writeTestCard("card-flomo", { title: "Flomo", created: "2026-01-01", source: "flomo" }, "Body");
+
+    const result = await flomoPushCommand(store, testDir, undefined, {
+      all: true,
+      fetchFn: mockFetch,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("1 pushed");
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
 });
 
 // ── Security: webhook URL validation ─────────────────────────────────

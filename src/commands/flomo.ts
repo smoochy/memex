@@ -131,6 +131,11 @@ async function pushSingleCard(
 
   const { data, content } = parseFrontmatter(raw);
 
+  // Anti-loopback: never push flomo-sourced cards back to flomo
+  if (data.source === "flomo") {
+    return { slug, status: "skipped", message: "Skipped: flomo-sourced card (anti-loopback)" };
+  }
+
   // Skip if already pushed
   if (data.flomoPushedAt) {
     return { slug, status: "skipped", message: `Already pushed at ${data.flomoPushedAt}` };
@@ -401,6 +406,8 @@ export async function flomoPushCommand(
       const raw = await store.readCard(card.slug);
       const { data } = parseFrontmatter(raw);
 
+      // Anti-loopback: never push flomo-sourced cards back to flomo
+      if (data.source === "flomo") continue;
       if (opts.source && data.source !== opts.source) continue;
       if (opts.tag) {
         const tagSet = new Set<string>();
