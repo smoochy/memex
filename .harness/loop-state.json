@@ -1,13 +1,12 @@
 {
-  "tick": 6,
-  "unit": "F3.2",
-  "description": "2 reviewers, 0 red, multiple yellow. Fixed interest-rate-mismatch (added wikilinks). Other yellows are minor.",
+  "tick": 7,
+  "unit": "F4.1",
+  "description": "Only 1 card from 22 memos. 经济金融 memos were knowledge dumps, Gartner memos severely outdated (2023-2024).",
   "status": "completed",
   "artifacts": [
-    ".harness/nodes/F3.2/run_1/eval-curator.md",
-    ".harness/nodes/F3.2/run_1/eval-da.md"
+    ".harness/nodes/F4.1/run_1/eval.md"
   ],
-  "next_unit": "F4.1",
+  "next_unit": "F4.2",
   "blockers": [],
   "review_of_previous": "",
   "plan_file": ".harness/plan.md",
@@ -38,8 +37,8 @@
   ],
   "_written_by": "opc-harness",
   "_plan_hash": "20c58620f144bc27",
-  "_last_modified": "2026-04-12T11:46:50.517Z",
-  "_git_head": "31cfad741026f6ae9185399372f04e4ae4a2e673",
+  "_last_modified": "2026-04-12T11:47:03.831Z",
+  "_git_head": "1a31427fd48dec93f18dc2cbc94e6cb603a886a7",
   "_tick_history": [
     {
       "unit": "F1.1",
@@ -69,6 +68,11 @@
     {
       "unit": "F3.2",
       "tick": 6,
+      "status": "completed"
+    },
+    {
+      "unit": "F4.1",
+      "tick": 7,
       "status": "completed"
     }
   ],
