@@ -1,12 +1,13 @@
 {
-  "tick": 11,
-  "unit": "F6.1",
-  "description": "3 cards from 54 memos (94% skip)",
+  "tick": 12,
+  "unit": "F6.2",
+  "description": "Curator PASS, DA PASS. 3 cards validated.",
   "status": "completed",
   "artifacts": [
-    ".harness/nodes/F6.1/run_1/eval.md"
+    ".harness/nodes/F6.2/run_1/eval-curator.md",
+    ".harness/nodes/F6.2/run_1/eval-da.md"
   ],
-  "next_unit": "F6.2",
+  "next_unit": "F7.1",
   "blockers": [],
   "review_of_previous": "",
   "plan_file": ".harness/plan.md",
@@ -37,8 +38,8 @@
   ],
   "_written_by": "opc-harness",
   "_plan_hash": "20c58620f144bc27",
-  "_last_modified": "2026-04-12T12:01:15.078Z",
-  "_git_head": "29445a9b8838f48f1143867800c548a996b0d622",
+  "_last_modified": "2026-04-12T12:15:33.825Z",
+  "_git_head": "a269fecbf341f8c63563ebeadb0321fea22e021d",
   "_tick_history": [
     {
       "unit": "F1.1",
@@ -94,6 +95,11 @@
       "unit": "F6.1",
       "tick": 11,
       "status": "completed"
+    },
+    {
+      "unit": "F6.2",
+      "tick": 12,
+      "status": "completed"
     }
   ],
   "_max_total_ticks": 66,
@@ -107,7 +113,7 @@
     "typecheck_script": false
   },
   "_last_review_evals": {
-    ".harness/nodes/F5.2/run_1/eval-curator.md": "61f1f3785801f339",
-    ".harness/nodes/F5.2/run_1/eval-da.md": "91201ce5ff95c7e0"
+    ".harness/nodes/F6.2/run_1/eval-curator.md": "831aedbb22cd9367",
+    ".harness/nodes/F6.2/run_1/eval-da.md": "4b5a5d2ff0b8a92b"
   }
 }
