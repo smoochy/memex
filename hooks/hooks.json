@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '## 🧠 Memex Retro Reminder\n\n**MANDATORY**: If this task involved code changes, architectural decisions, debugging, or non-trivial problem solving, you MUST invoke the \\`memex-retro\\` skill NOW before ending your turn.\n\nDid you learn something reusable? Capture it as a knowledge card.\n\n**Skip retro only if**: This was purely informational (no problem solving) or you already captured insights during the session.'"
+          }
+        ]
+      }
     ]
   }
 }
