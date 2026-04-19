@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "prepare": "[ -d .git ] && cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit || true",
-    "build": "tsc",
+    "build": "node scripts/bundle.mjs",
     "postbuild": "node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "esbuild": "^0.27.7",
     "happy-dom": "^20.8.4",
     "marked": "^17.0.5",
     "typescript": "^5.9.3",
