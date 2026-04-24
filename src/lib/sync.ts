@@ -214,6 +214,12 @@ export class GitAdapter implements SyncAdapter {
     // Fetch remote — if it has existing commits, merge them before pushing
     try {
       await execFile("git", ["-C", this.home, "fetch", "origin"]);
+
+      // Normalize local branch to match remote default branch.
+      // Without this, machines with different git init.defaultBranch settings
+      // (e.g. main vs master) create divergent branches on the same remote.
+      await this.normalizeBranch();
+
       // Check if remote has any commits
       try {
         const remoteBranch = await detectRemoteBranch(this.home);
@@ -236,6 +242,41 @@ export class GitAdapter implements SyncAdapter {
       adapter: "git",
       auto: false,
     });
+  }
+
+  /**
+   * Rename the local branch to match the remote's default branch,
+   * or fall back to "main" if the remote is empty.
+   */
+  private async normalizeBranch(): Promise<void> {
+    let target = "main"; // fallback for empty remotes
+
+    // Detect remote's default branch via ls-remote --symref
+    try {
+      const { stdout } = await execFile("git", [
+        "-C", this.home, "ls-remote", "--symref", "origin", "HEAD",
+      ]);
+      // Parses: "ref: refs/heads/<branch>\tHEAD"
+      const match = stdout.match(/ref: refs\/heads\/(\S+)\s/);
+      if (match) {
+        target = match[1];
+      }
+    } catch {
+      // ls-remote failed (empty remote or offline) — use fallback
+    }
+
+    // Get current local branch name
+    try {
+      const { stdout } = await execFile("git", [
+        "-C", this.home, "rev-parse", "--abbrev-ref", "HEAD",
+      ]);
+      const current = stdout.trim();
+      if (current && current !== target) {
+        await execFile("git", ["-C", this.home, "branch", "-M", target]);
+      }
+    } catch {
+      // No commits yet or detached HEAD — branch -M will work after first commit
+    }
   }
 
   async pull(): Promise<SyncResult> {

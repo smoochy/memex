@@ -61,6 +61,8 @@ describe("GitAdapter", () => {
   async function createBareRemote(): Promise<string> {
     const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
     await execFile("git", ["init", "--bare", bare]);
+    // Ensure HEAD points to main so clones check out the right branch
+    await execFile("git", ["-C", bare, "symbolic-ref", "HEAD", "refs/heads/main"]);
     return bare;
   }
 
@@ -276,6 +278,55 @@ describe("GitAdapter", () => {
     const adapter = new GitAdapter(home);
     await expect(adapter.init("../traversal")).rejects.toThrow("Invalid remote URL");
   });
+
+  it("init normalizes local branch to match remote default (master → main)", async () => {
+    // Create a bare remote with 'main' as its branch
+    const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
+    await execFile("git", ["init", "--bare", bare]);
+    // Push a dummy commit to establish 'main' on the remote
+    const seed = await mkdtemp(join(tmpdir(), "memex-seed-"));
+    await execFile("git", ["init", seed]);
+    await execFile("git", ["-C", seed, "checkout", "-b", "main"]);
+    await writeFile(join(seed, "README.md"), "seed", "utf-8");
+    await execFile("git", ["-C", seed, "add", "."]);
+    await execFile("git", ["-C", seed, "commit", "-m", "seed"]);
+    await execFile("git", ["-C", seed, "remote", "add", "origin", bare]);
+    await execFile("git", ["-C", seed, "push", "-u", "origin", "main"]);
+    // Set HEAD on bare to refs/heads/main
+    await execFile("git", ["-C", bare, "symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    // Now init local repo on 'master' (simulating old git default)
+    await execFile("git", ["init", home]);
+    await execFile("git", ["-C", home, "checkout", "-b", "master"]);
+
+    const adapter = new GitAdapter(home);
+    await adapter.init(bare);
+
+    // Local branch should now be 'main', not 'master'
+    const { stdout } = await execFile("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(stdout.trim()).toBe("main");
+
+    await rm(bare, { recursive: true });
+    await rm(seed, { recursive: true });
+  }, 20000);
+
+  it("init normalizes local branch to 'main' when remote is empty", async () => {
+    const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
+    await execFile("git", ["init", "--bare", bare]);
+
+    // Init local repo on 'master'
+    await execFile("git", ["init", home]);
+    await execFile("git", ["-C", home, "checkout", "-b", "master"]);
+
+    const adapter = new GitAdapter(home);
+    await adapter.init(bare);
+
+    // Should be normalized to 'main'
+    const { stdout } = await execFile("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(stdout.trim()).toBe("main");
+
+    await rm(bare, { recursive: true });
+  }, 15000);
 
   it("init accepts git@... SSH URL (validation only)", async () => {
     // Verify URL validation passes — init will fail on push (no real remote), that's OK
