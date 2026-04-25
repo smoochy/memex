@@ -106,9 +106,12 @@ program
 program
   .command("links [slug]")
   .description("Show link graph stats or specific card links")
-  .action(async (slug?: string) => {
+  .option("--filter <type>", "Filter cards: orphan or hub")
+  .option("--stats", "Show summary statistics instead of card list")
+  .action(async (slug?: string, cmdOpts?: { filter?: string; stats?: boolean }) => {
     const store = await getStore();
-    const result = await linksCommand(store, slug);
+    const filter = cmdOpts?.filter as "orphan" | "hub" | undefined;
+    const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats });
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   });
