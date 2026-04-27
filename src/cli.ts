@@ -16,7 +16,7 @@ import { archiveCommand } from "./commands/archive.js";
 import { serveCommand } from "./commands/serve.js";
 import { syncCommand } from "./commands/sync.js";
 import { importCommand } from "./commands/import.js";
-import { doctorCommand } from "./commands/doctor.js";
+import { doctorCommand, doctorRunAll } from "./commands/doctor.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { backlinksCommand } from "./commands/backlinks.js";
 import { organizeCommand } from "./commands/organize.js";
@@ -264,8 +264,9 @@ program
       if (result.output) process.stdout.write(result.output + "\n");
       exit(result.exitCode);
     } else {
-      process.stderr.write("No check specified. Use --check-collisions to check for slug collisions.\n");
-      exit(1);
+      const result = await doctorRunAll(cardsDir, archiveDir);
+      if (result.output) process.stdout.write(result.output + "\n");
+      exit(result.exitCode);
     }
   });
 
