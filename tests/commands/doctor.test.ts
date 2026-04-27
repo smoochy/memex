@@ -112,6 +112,17 @@ describe("checkOrphans", () => {
     expect(result.message).toContain("no inbound links");
   });
 
+  it("lists orphan slugs in verbose mode", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[b]]");
+    await writeFile(join(cardsDir, "b.md"), "no links");
+    await writeFile(join(cardsDir, "c.md"), "also no links");
+
+    const result = await checkOrphans(cardsDir, archiveDir, true);
+    expect(result.status).toBe("warn");
+    expect(result.message).toContain("  a");
+    expect(result.message).toContain("  c");
+  });
+
   it("reports ok for empty wiki", async () => {
     const result = await checkOrphans(cardsDir, archiveDir);
     expect(result.status).toBe("ok");
@@ -150,6 +161,24 @@ describe("checkBrokenLinks", () => {
     const result = await checkBrokenLinks(cardsDir, archiveDir);
     expect(result.status).toBe("warn");
     expect(result.message).toContain("2 link(s) to non-existent cards");
+  });
+
+  it("shows details in verbose mode", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[missing]] and [[also-missing]]");
+    await writeFile(join(cardsDir, "b.md"), "links to [[a]]");
+
+    const result = await checkBrokenLinks(cardsDir, archiveDir, true);
+    expect(result.status).toBe("warn");
+    expect(result.message).toContain("a \u2192 missing");
+    expect(result.message).toContain("a \u2192 also-missing");
+  });
+
+  it("omits details without verbose", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[missing]]");
+    await writeFile(join(cardsDir, "b.md"), "links to [[a]]");
+
+    const result = await checkBrokenLinks(cardsDir, archiveDir, false);
+    expect(result.message).not.toContain("\u2192");
   });
 });
 

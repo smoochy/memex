@@ -74,7 +74,8 @@ export async function checkCollisions(
 
 export async function checkOrphans(
   cardsDir: string,
-  archiveDir: string
+  archiveDir: string,
+  verbose?: boolean
 ): Promise<CheckResult> {
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
@@ -108,10 +109,14 @@ export async function checkOrphans(
     }
 
     const pct = ((orphans.length / cards.length) * 100).toFixed(0);
+    let message = `${orphans.length} cards (${pct}%) have no inbound links`;
+    if (verbose) {
+      message += "\n" + orphans.map((s) => `  ${s}`).join("\n");
+    }
     return {
       name: "Orphans",
       status: "warn",
-      message: `${orphans.length} cards (${pct}%) have no inbound links`,
+      message,
     };
   } catch (e) {
     return {
@@ -124,7 +129,8 @@ export async function checkOrphans(
 
 export async function checkBrokenLinks(
   cardsDir: string,
-  archiveDir: string
+  archiveDir: string,
+  verbose?: boolean
 ): Promise<CheckResult> {
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
@@ -147,10 +153,16 @@ export async function checkBrokenLinks(
       return { name: "Broken links", status: "ok", message: "none found" };
     }
 
+    let message = `${broken.length} link(s) to non-existent cards`;
+    if (verbose) {
+      const details = broken.map((b) => `  ${b.from} → ${b.to}`).join("\n");
+      message += "\n" + details;
+    }
+
     return {
       name: "Broken links",
       status: "warn",
-      message: `${broken.length} link(s) to non-existent cards`,
+      message,
     };
   } catch (e) {
     return {
@@ -168,12 +180,13 @@ function formatCheckResult(r: CheckResult): string {
 
 export async function doctorRunAll(
   cardsDir: string,
-  archiveDir: string
+  archiveDir: string,
+  verbose?: boolean
 ): Promise<DoctorResult> {
   const results = await Promise.all([
     checkCollisions(cardsDir, archiveDir),
-    checkOrphans(cardsDir, archiveDir),
-    checkBrokenLinks(cardsDir, archiveDir),
+    checkOrphans(cardsDir, archiveDir, verbose),
+    checkBrokenLinks(cardsDir, archiveDir, verbose),
   ]);
 
   const output = results.map(formatCheckResult).join("\n");
