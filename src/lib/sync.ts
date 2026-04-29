@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
 
 const execFile = promisify(execFileCb);
 
@@ -28,7 +29,7 @@ export interface SyncStatus {
 }
 
 export interface SyncAdapter {
-  init(remote?: string): Promise<void>;
+  init(remote?: string): Promise<string>;
   pull(): Promise<SyncResult>;
   push(): Promise<SyncResult>;
   sync(): Promise<SyncResult>;
@@ -53,11 +54,10 @@ export async function writeSyncConfig(
   config: SyncConfig
 ): Promise<void> {
   await mkdir(home, { recursive: true });
-  await writeFile(
-    join(home, CONFIG_FILE),
-    JSON.stringify(config, null, 2),
-    "utf-8"
-  );
+  const target = join(home, CONFIG_FILE);
+  const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
+  await writeFile(tmp, JSON.stringify(config, null, 2), "utf-8");
+  await rename(tmp, target); // atomic on POSIX
 }
 
 // ---- Git helpers ----
@@ -105,7 +105,7 @@ async function detectRemoteBranch(home: string): Promise<string> {
 export class GitAdapter implements SyncAdapter {
   constructor(private home: string) {}
 
-  async init(remote?: string): Promise<void> {
+  async init(remote?: string): Promise<string> {
     if (!(await gitAvailable())) {
       throw new Error("git is required for sync. Install git first.");
     }
@@ -137,9 +137,18 @@ export class GitAdapter implements SyncAdapter {
         );
       }
       // Try to reuse existing repo first, create only if it doesn't exist
+      let ghUser: string;
+      try {
+        const { stdout: userOut } = await execFile("gh", [
+          "api", "user", "-q", ".login",
+        ]);
+        ghUser = userOut.trim();
+      } catch {
+        throw new Error("Cannot determine GitHub username. Ensure `gh auth login` is complete.");
+      }
       try {
         const { stdout } = await execFile("gh", [
-          "repo", "view", "memex-cards", "--json", "url", "-q", ".url",
+          "repo", "view", `${ghUser}/memex-cards`, "--json", "url", "-q", ".url",
         ]);
         url = stdout.trim();
       } catch {
@@ -153,6 +162,11 @@ export class GitAdapter implements SyncAdapter {
         throw new Error("Failed to get repo URL from gh CLI.");
       }
     }
+
+    // Ensure cards/ exists. `git add cards` below would otherwise fail with
+    // "pathspec 'cards' did not match any files" on a fresh install where no
+    // card has ever been written, aborting the whole init.
+    await mkdir(join(this.home, "cards"), { recursive: true });
 
     // Init git repo if not already
     try {
@@ -196,9 +210,11 @@ export class GitAdapter implements SyncAdapter {
     }
 
     // Commit local content first
-    // Scope add to cards/ and archive/ only (don't stage unrelated files in ~/.memex)
-    await execFile("git", ["-C", this.home, "add", "cards"]);
-    try { await execFile("git", ["-C", this.home, "add", "archive"]); } catch { /* archive dir may not exist */ }
+    // Stage .gitignore so there's always at least one file to commit
+    // (cards/ and archive/ may be empty dirs, which git can't track).
+    await execFile("git", ["-C", this.home, "add", ".gitignore"]);
+    try { await execFile("git", ["-C", this.home, "add", "cards"]); } catch { /* empty or missing */ }
+    try { await execFile("git", ["-C", this.home, "add", "archive"]); } catch { /* empty or missing */ }
     try {
       await execFile("git", [
         "-C",
@@ -214,15 +230,32 @@ export class GitAdapter implements SyncAdapter {
     // Fetch remote — if it has existing commits, merge them before pushing
     try {
       await execFile("git", ["-C", this.home, "fetch", "origin"]);
+
+      // Normalize local branch to match remote default branch.
+      // Without this, machines with different git init.defaultBranch settings
+      // (e.g. main vs master) create divergent branches on the same remote.
+      await this.normalizeBranch();
+
       // Check if remote has any commits
       try {
         const remoteBranch = await detectRemoteBranch(this.home);
         // Remote has commits — merge with allow-unrelated-histories
-        await execFile("git", [
-          "-C", this.home, "merge", remoteBranch,
-          "--allow-unrelated-histories", "--no-edit",
-        ]);
-      } catch {
+        try {
+          await execFile("git", [
+            "-C", this.home, "merge", remoteBranch,
+            "--allow-unrelated-histories", "--no-edit",
+          ]);
+        } catch (mergeErr) {
+          // Merge conflict — abort and surface to user
+          try { await execFile("git", ["-C", this.home, "merge", "--abort"]); } catch { /* ignore */ }
+          throw new Error(
+            `Merge conflict during init. Your local cards conflict with remote.\n` +
+            `Run: cd ${this.home} && git fetch origin && git merge origin/main --allow-unrelated-histories\n` +
+            `Then resolve conflicts and run \`memex sync --init\` again.`
+          );
+        }
+      } catch (err) {
+        if ((err as Error).message?.includes("Merge conflict")) throw err;
         // No remote branch yet — fresh repo, push will create it
       }
     } catch {
@@ -236,6 +269,43 @@ export class GitAdapter implements SyncAdapter {
       adapter: "git",
       auto: false,
     });
+
+    return url;
+  }
+
+  /**
+   * Rename the local branch to match the remote's default branch,
+   * or fall back to "main" if the remote is empty.
+   */
+  private async normalizeBranch(): Promise<void> {
+    let target = "main"; // fallback for empty remotes
+
+    // Detect remote's default branch via ls-remote --symref
+    try {
+      const { stdout } = await execFile("git", [
+        "-C", this.home, "ls-remote", "--symref", "origin", "HEAD",
+      ]);
+      // Parses: "ref: refs/heads/<branch>\tHEAD"
+      const match = stdout.match(/ref: refs\/heads\/(\S+)\s/);
+      if (match) {
+        target = match[1];
+      }
+    } catch {
+      // ls-remote failed (empty remote or offline) — use fallback
+    }
+
+    // Get current local branch name
+    try {
+      const { stdout } = await execFile("git", [
+        "-C", this.home, "rev-parse", "--abbrev-ref", "HEAD",
+      ]);
+      const current = stdout.trim();
+      if (current && current !== target) {
+        await execFile("git", ["-C", this.home, "branch", "-M", target]);
+      }
+    } catch {
+      // No commits yet or detached HEAD — branch -M will work after first commit
+    }
   }
 
   async pull(): Promise<SyncResult> {
@@ -267,8 +337,8 @@ export class GitAdapter implements SyncAdapter {
       return { success: false, message: "Not configured." };
     }
     // Scope add to cards/ and archive/ only (don't stage unrelated files in ~/.memex)
-    await execFile("git", ["-C", this.home, "add", "cards"]);
-    try { await execFile("git", ["-C", this.home, "add", "archive"]); } catch { /* archive dir may not exist */ }
+    try { await execFile("git", ["-C", this.home, "add", "cards"]); } catch { /* empty or missing */ }
+    try { await execFile("git", ["-C", this.home, "add", "archive"]); } catch { /* empty or missing */ }
     try {
       const ts = new Date().toISOString();
       await execFile("git", ["-C", this.home, "commit", "-m", `memex sync ${ts}`]);

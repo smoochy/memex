@@ -46,4 +46,32 @@ describe("linksCommand", () => {
     const result = await linksCommand(store, undefined);
     expect(result.output).toContain("orphan");
   });
+
+  it("filters to orphans only", async () => {
+    await writeFile(join(tmpDir, "cards", "orphan.md"), "---\ntitle: Orphan\n---\nNo one links here.");
+    const result = await linksCommand(store, undefined, { filter: "orphan" });
+    // a has 1 inbound (from b), b has 1 inbound (from a), c has 1 inbound (from a)
+    // orphan has 0 inbound → should appear
+    expect(result.output).toContain("orphan");
+    // a, b, c all have inbound links → should NOT appear
+    expect(result.output).not.toMatch(/^a\s/m);
+    expect(result.output).not.toMatch(/^b\s/m);
+    expect(result.output).not.toMatch(/^c\s/m);
+  });
+
+  it("shows summary stats", async () => {
+    const result = await linksCommand(store, undefined, { stats: true });
+    expect(result.output).toContain("Total cards: 3");
+    expect(result.output).toContain("Orphans (0 inbound):");
+    expect(result.output).toContain("Hubs (10+ inbound):");
+    expect(result.output).toContain("Avg outbound links:");
+    expect(result.output).toContain("Avg inbound links:");
+  });
+
+  it("combines filter and stats", async () => {
+    await writeFile(join(tmpDir, "cards", "orphan.md"), "---\ntitle: Orphan\n---\nNo one links here.");
+    const result = await linksCommand(store, undefined, { filter: "orphan", stats: true });
+    expect(result.output).toContain("Showing: orphan");
+    expect(result.output).toContain("Total cards: 4");
+  });
 });

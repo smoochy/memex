@@ -7189,10 +7189,11 @@ var init_parser = __esm({
 });
 
 // src/lib/sync.ts
-import { readFile as readFile3, writeFile as writeFile2, mkdir as mkdir2 } from "node:fs/promises";
+import { readFile as readFile3, writeFile as writeFile2, mkdir as mkdir2, rename as rename2 } from "node:fs/promises";
 import { join as join3 } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
 async function readSyncConfig(home) {
   try {
     const raw = await readFile3(join3(home, CONFIG_FILE), "utf-8");
@@ -7203,11 +7204,10 @@ async function readSyncConfig(home) {
 }
 async function writeSyncConfig(home, config2) {
   await mkdir2(home, { recursive: true });
-  await writeFile2(
-    join3(home, CONFIG_FILE),
-    JSON.stringify(config2, null, 2),
-    "utf-8"
-  );
+  const target = join3(home, CONFIG_FILE);
+  const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
+  await writeFile2(tmp, JSON.stringify(config2, null, 2), "utf-8");
+  await rename2(tmp, target);
 }
 async function gitAvailable() {
   try {
@@ -7304,11 +7304,23 @@ var init_sync = __esm({
               "gh CLI is not authenticated. Run `gh auth login` first."
             );
           }
+          let ghUser;
+          try {
+            const { stdout: userOut } = await execFile("gh", [
+              "api",
+              "user",
+              "-q",
+              ".login"
+            ]);
+            ghUser = userOut.trim();
+          } catch {
+            throw new Error("Cannot determine GitHub username. Ensure `gh auth login` is complete.");
+          }
           try {
             const { stdout } = await execFile("gh", [
               "repo",
               "view",
-              "memex-cards",
+              `${ghUser}/memex-cards`,
               "--json",
               "url",
               "-q",
@@ -7328,6 +7340,7 @@ var init_sync = __esm({
             throw new Error("Failed to get repo URL from gh CLI.");
           }
         }
+        await mkdir2(join3(this.home, "cards"), { recursive: true });
         try {
           await execFile("git", ["-C", this.home, "rev-parse", "--git-dir"]);
         } catch {
@@ -7361,7 +7374,11 @@ var init_sync = __esm({
             throw err;
           }
         }
-        await execFile("git", ["-C", this.home, "add", "cards"]);
+        await execFile("git", ["-C", this.home, "add", ".gitignore"]);
+        try {
+          await execFile("git", ["-C", this.home, "add", "cards"]);
+        } catch {
+        }
         try {
           await execFile("git", ["-C", this.home, "add", "archive"]);
         } catch {
@@ -7378,17 +7395,31 @@ var init_sync = __esm({
         }
         try {
           await execFile("git", ["-C", this.home, "fetch", "origin"]);
+          await this.normalizeBranch();
           try {
             const remoteBranch = await detectRemoteBranch(this.home);
-            await execFile("git", [
-              "-C",
-              this.home,
-              "merge",
-              remoteBranch,
-              "--allow-unrelated-histories",
-              "--no-edit"
-            ]);
-          } catch {
+            try {
+              await execFile("git", [
+                "-C",
+                this.home,
+                "merge",
+                remoteBranch,
+                "--allow-unrelated-histories",
+                "--no-edit"
+              ]);
+            } catch (mergeErr) {
+              try {
+                await execFile("git", ["-C", this.home, "merge", "--abort"]);
+              } catch {
+              }
+              throw new Error(
+                `Merge conflict during init. Your local cards conflict with remote.
+Run: cd ${this.home} && git fetch origin && git merge origin/main --allow-unrelated-histories
+Then resolve conflicts and run \`memex sync --init\` again.`
+              );
+            }
+          } catch (err) {
+            if (err.message?.includes("Merge conflict")) throw err;
           }
         } catch {
         }
@@ -7398,6 +7429,43 @@ var init_sync = __esm({
           adapter: "git",
           auto: false
         });
+        return url2;
+      }
+      /**
+       * Rename the local branch to match the remote's default branch,
+       * or fall back to "main" if the remote is empty.
+       */
+      async normalizeBranch() {
+        let target = "main";
+        try {
+          const { stdout } = await execFile("git", [
+            "-C",
+            this.home,
+            "ls-remote",
+            "--symref",
+            "origin",
+            "HEAD"
+          ]);
+          const match = stdout.match(/ref: refs\/heads\/(\S+)\s/);
+          if (match) {
+            target = match[1];
+          }
+        } catch {
+        }
+        try {
+          const { stdout } = await execFile("git", [
+            "-C",
+            this.home,
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD"
+          ]);
+          const current = stdout.trim();
+          if (current && current !== target) {
+            await execFile("git", ["-C", this.home, "branch", "-M", target]);
+          }
+        } catch {
+        }
       }
       async pull() {
         const config2 = await readSyncConfig(this.home);
@@ -7429,7 +7497,10 @@ var init_sync = __esm({
         if (!config2.remote) {
           return { success: false, message: "Not configured." };
         }
-        await execFile("git", ["-C", this.home, "add", "cards"]);
+        try {
+          await execFile("git", ["-C", this.home, "add", "cards"]);
+        } catch {
+        }
         try {
           await execFile("git", ["-C", this.home, "add", "archive"]);
         } catch {
@@ -8255,7 +8326,7 @@ var init_search = __esm({
 });
 
 // src/commands/links.ts
-async function linksCommand(store, slug) {
+async function linksCommand(store, slug, opts) {
   const cards = await store.scanAll();
   if (cards.length === 0) return { output: "", exitCode: 0 };
   const outboundMap = /* @__PURE__ */ new Map();
@@ -8279,18 +8350,49 @@ async function linksCommand(store, slug) {
     const inbound = inboundMap.get(slug) || [];
     return { output: formatCardLinks(slug, outbound, inbound), exitCode: 0 };
   }
-  const stats = cards.map((card) => ({
+  let stats = cards.map((card) => ({
     slug: card.slug,
     outbound: (outboundMap.get(card.slug) || []).length,
     inbound: (inboundMap.get(card.slug) || []).length
   }));
+  const filter = opts?.filter;
+  if (filter === "orphan") {
+    stats = stats.filter((s) => s.inbound === 0);
+  } else if (filter === "hub") {
+    stats = stats.filter((s) => s.inbound >= HUB_THRESHOLD2);
+  }
+  if (opts?.stats) {
+    return { output: formatLinkSummary(stats, cards.length, filter), exitCode: 0 };
+  }
   return { output: formatLinkStats(stats), exitCode: 0 };
 }
+function formatLinkSummary(stats, totalCards, filter) {
+  const orphans = stats.filter((s) => s.inbound === 0).length;
+  const hubs = stats.filter((s) => s.inbound >= HUB_THRESHOLD2).length;
+  const totalOut = stats.reduce((sum, s) => sum + s.outbound, 0);
+  const totalIn = stats.reduce((sum, s) => sum + s.inbound, 0);
+  const avgOut = stats.length > 0 ? (totalOut / stats.length).toFixed(1) : "0";
+  const avgIn = stats.length > 0 ? (totalIn / stats.length).toFixed(1) : "0";
+  const lines = [];
+  if (filter) {
+    lines.push(`Showing: ${filter} (${stats.length} cards)`);
+    lines.push(`Total cards: ${totalCards}`);
+  } else {
+    lines.push(`Total cards: ${totalCards}`);
+  }
+  lines.push(`Orphans (0 inbound): ${orphans}`);
+  lines.push(`Hubs (${HUB_THRESHOLD2}+ inbound): ${hubs}`);
+  lines.push(`Avg outbound links: ${avgOut}`);
+  lines.push(`Avg inbound links: ${avgIn}`);
+  return lines.join("\n");
+}
+var HUB_THRESHOLD2;
 var init_links = __esm({
   "src/commands/links.ts"() {
     "use strict";
     init_parser();
     init_formatter();
+    HUB_THRESHOLD2 = 10;
   }
 });
 
@@ -40281,19 +40383,20 @@ function injectBanner(html) {
 <style>#sync-banner ~ .wallpaper { top: 36px; } #sync-banner ~ .window { margin-top: 44px; height: calc(100vh - 56px); }</style>`;
   return html.replace("<body>", "<body>" + banner);
 }
-async function serveCommand(port) {
+async function serveCommand(port, opts = {}) {
   const home = await resolveMemexHome();
   const syncConfig = await readSyncConfig(home);
-  if (syncConfig.remote) {
+  if (syncConfig.remote && !opts.local) {
     console.log(`Cards synced to ${syncConfig.remote}`);
     console.log(`Opening ${MEMRA_URL}...`);
     if (!process.env.MEMEX_NO_OPEN) {
       const bin = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      execFile2(bin, [MEMRA_URL], () => {
+      execFile2(bin, [MEMRA_URL], { shell: process.platform === "win32" }, () => {
       });
     }
     return null;
   }
+  const showBanner = !syncConfig.remote;
   const store = new CardStore(join6(home, "cards"), join6(home, "archive"));
   const server = createServer(async (req, res) => {
     try {
@@ -40403,7 +40506,7 @@ window.createShareCard = createShareCard;
         return;
       }
       if (url2.pathname === "/" || url2.pathname === "/index.html") {
-        const html = await getHTML(true);
+        const html = await getHTML(showBanner);
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);
         return;
@@ -40431,10 +40534,12 @@ window.createShareCard = createShareCard;
       server.listen(currentPort, "127.0.0.1", () => {
         const url2 = `http://localhost:${currentPort}`;
         console.log(`memex is running at ${url2}`);
-        console.log("\u{1F4A1} Tip: Run 'memex sync --init' to sync and access your cards online");
+        if (showBanner) {
+          console.log("\u{1F4A1} Tip: Run 'memex sync --init' to sync and access your cards online");
+        }
         if (!process.env.MEMEX_NO_OPEN) {
           const bin = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-          execFile2(bin, [url2], () => {
+          execFile2(bin, [url2], { shell: process.platform === "win32" }, () => {
           });
         }
         resolvePromise(server);
@@ -40450,10 +40555,12 @@ async function syncCommand(home, opts) {
   const adapter = new GitAdapter(home);
   if (opts.init) {
     try {
-      await adapter.init(opts.remote);
+      const url2 = await adapter.init(opts.remote);
       return {
         success: true,
-        output: "Sync initialized.\n\nTip: Run `memex sync on` to auto-sync after every write."
+        output: `Sync initialized with ${url2}
+
+Tip: Run \`memex sync on\` to auto-sync after every write.`
       };
     } catch (err) {
       return { success: false, error: err.message };
@@ -40504,9 +40611,36 @@ async function syncCommand(home, opts) {
   }
   const config2 = await readSyncConfig(home);
   if (!config2.remote) {
+    let hint = "";
+    try {
+      const { execFile: execFileCb2 } = await import("node:child_process");
+      const { promisify: promisify2 } = await import("node:util");
+      const execFile3 = promisify2(execFileCb2);
+      await execFile3("gh", ["--version"]);
+      try {
+        const { stdout: user } = await execFile3("gh", ["api", "user", "-q", ".login"]);
+        const { stdout: repoUrl } = await execFile3("gh", [
+          "repo",
+          "view",
+          `${user.trim()}/memex-cards`,
+          "--json",
+          "url",
+          "-q",
+          ".url"
+        ]);
+        hint = `
+
+Detected existing repo: ${repoUrl.trim()}
+Run: memex sync --init`;
+      } catch {
+        hint = "\n\nNo existing memex-cards repo found. Run: memex sync --init\n(This will create a private GitHub repo automatically.)";
+      }
+    } catch {
+      hint = "\n\nInstall gh CLI (https://cli.github.com) for auto-setup,\nor provide a URL: memex sync --init <git-url>";
+    }
     return {
       success: false,
-      error: "Not initialized. Run `memex sync --init` first."
+      error: `Sync not initialized.${hint}`
     };
   }
   const result = await adapter.sync();
@@ -40679,7 +40813,8 @@ Usage: memex import <source> [--dry-run] [--dir <path>]`
 
 // src/commands/doctor.ts
 init_store();
-async function doctorCommand(cardsDir, archiveDir) {
+init_parser();
+async function checkCollisions(cardsDir, archiveDir) {
   try {
     const basenameStore = new CardStore(cardsDir, archiveDir, false);
     const cards = await basenameStore.scanAll();
@@ -40704,6 +40839,161 @@ async function doctorCommand(cardsDir, archiveDir) {
     }
     if (collisions.length === 0) {
       return {
+        name: "Slug collisions",
+        status: "ok",
+        message: "none found"
+      };
+    }
+    const details = collisions.map((c) => `  "${c.slug}" \u2192 ${c.paths.join(", ")}`).join("\n");
+    return {
+      name: "Slug collisions",
+      status: "error",
+      message: `${collisions.length} collision(s) found
+${details}`
+    };
+  } catch (e) {
+    return {
+      name: "Slug collisions",
+      status: "error",
+      message: `check failed: ${e.message}`
+    };
+  }
+}
+async function checkOrphans(cardsDir, archiveDir, verbose) {
+  try {
+    const store = new CardStore(cardsDir, archiveDir, true);
+    const cards = await store.scanAll();
+    if (cards.length === 0) {
+      return { name: "Orphans", status: "ok", message: "no cards found" };
+    }
+    const inboundMap = /* @__PURE__ */ new Map();
+    for (const card of cards) {
+      inboundMap.set(card.slug, 0);
+    }
+    for (const card of cards) {
+      const raw = await store.readCard(card.slug);
+      const { content } = parseFrontmatter(raw);
+      const links = extractLinks(content);
+      for (const link of links) {
+        if (inboundMap.has(link)) {
+          inboundMap.set(link, (inboundMap.get(link) || 0) + 1);
+        }
+      }
+    }
+    const orphans = Array.from(inboundMap.entries()).filter(([, count]) => count === 0).map(([slug]) => slug);
+    if (orphans.length === 0) {
+      return { name: "Orphans", status: "ok", message: "all cards have inbound links" };
+    }
+    const pct = (orphans.length / cards.length * 100).toFixed(0);
+    let message = `${orphans.length} cards (${pct}%) have no inbound links`;
+    if (verbose) {
+      message += "\n" + orphans.map((s) => `  ${s}`).join("\n");
+    }
+    return {
+      name: "Orphans",
+      status: "warn",
+      message,
+      details: orphans
+    };
+  } catch (e) {
+    return {
+      name: "Orphans",
+      status: "error",
+      message: `check failed: ${e.message}`
+    };
+  }
+}
+async function checkBrokenLinks(cardsDir, archiveDir, verbose) {
+  try {
+    const store = new CardStore(cardsDir, archiveDir, true);
+    const cards = await store.scanAll();
+    const knownSlugs = new Set(cards.map((c) => c.slug));
+    const broken = [];
+    for (const card of cards) {
+      const raw = await store.readCard(card.slug);
+      const { content } = parseFrontmatter(raw);
+      const links = extractLinks(content);
+      for (const link of links) {
+        if (!knownSlugs.has(link)) {
+          broken.push({ from: card.slug, to: link });
+        }
+      }
+    }
+    if (broken.length === 0) {
+      return { name: "Broken links", status: "ok", message: "none found" };
+    }
+    let message = `${broken.length} link(s) to non-existent cards`;
+    if (verbose) {
+      const detailLines = broken.map((b) => `  ${b.from} \u2192 ${b.to}`).join("\n");
+      message += "\n" + detailLines;
+    }
+    return {
+      name: "Broken links",
+      status: "warn",
+      message,
+      details: broken.map((b) => `${b.from} \u2192 ${b.to}`)
+    };
+  } catch (e) {
+    return {
+      name: "Broken links",
+      status: "error",
+      message: `check failed: ${e.message}`
+    };
+  }
+}
+function formatCheckResult(r) {
+  const icon = r.status === "ok" ? "\u2713" : r.status === "warn" ? "\u26A0" : "\u2717";
+  return `${icon} ${r.name}: ${r.message}`;
+}
+async function doctorRunAll(cardsDir, archiveDir, verbose, json2) {
+  const results = await Promise.all([
+    checkCollisions(cardsDir, archiveDir),
+    checkOrphans(cardsDir, archiveDir, verbose),
+    checkBrokenLinks(cardsDir, archiveDir, verbose)
+  ]);
+  const hasError = results.some((r) => r.status === "error");
+  if (json2) {
+    const jsonOutput = results.map((r) => ({
+      name: r.name,
+      status: r.status,
+      ...r.details ? { details: r.details } : {}
+    }));
+    return { exitCode: hasError ? 1 : 0, output: JSON.stringify(jsonOutput, null, 2) };
+  }
+  const output = results.map(formatCheckResult).join("\n");
+  return { exitCode: hasError ? 1 : 0, output };
+}
+async function doctorCommand(cardsDir, archiveDir, json2) {
+  try {
+    const basenameStore = new CardStore(cardsDir, archiveDir, false);
+    const cards = await basenameStore.scanAll();
+    const slugMap = /* @__PURE__ */ new Map();
+    for (const card of cards) {
+      if (!slugMap.has(card.slug)) {
+        slugMap.set(card.slug, []);
+      }
+      slugMap.get(card.slug).push(card.path);
+    }
+    const collisions = [];
+    for (const [slug, paths] of slugMap.entries()) {
+      if (paths.length > 1) {
+        const nestedStore = new CardStore(cardsDir, archiveDir, true);
+        const nestedCards = await nestedStore.scanAll();
+        const fullPaths = paths.map((path) => {
+          const found = nestedCards.find((c) => c.path === path);
+          return found?.slug ?? path;
+        });
+        collisions.push({ slug, paths, fullPaths });
+      }
+    }
+    if (collisions.length === 0) {
+      if (json2) {
+        return {
+          exitCode: 0,
+          output: JSON.stringify([{ name: "Slug collisions", status: "ok" }], null, 2)
+        };
+      }
+      return {
         exitCode: 0,
         output: "No slug collisions found. Safe to enable nestedSlugs."
       };
@@ -40719,10 +41009,18 @@ async function doctorCommand(cardsDir, archiveDir) {
       lines.push("");
     }
     lines.push("Resolve these collisions before enabling nestedSlugs.");
-    return {
-      exitCode: 1,
-      output: lines.join("\n")
-    };
+    if (json2) {
+      const details = collisions.map((c) => ({
+        slug: c.slug,
+        paths: c.paths,
+        fullPaths: c.fullPaths
+      }));
+      return {
+        exitCode: 1,
+        output: JSON.stringify([{ name: "Slug collisions", status: "error", details }], null, 2)
+      };
+    }
+    return { exitCode: 1, output: lines.join("\n") };
   } catch (e) {
     return {
       exitCode: 1,
@@ -40861,9 +41159,10 @@ program2.command("write <slug>").description("Write a card (content via stdin)")
     exit(1);
   }
 });
-program2.command("links [slug]").description("Show link graph stats or specific card links").action(async (slug) => {
+program2.command("links [slug]").description("Show link graph stats or specific card links").option("--filter <type>", "Filter cards: orphan or hub").option("--stats", "Show summary statistics instead of card list").action(async (slug, cmdOpts) => {
   const store = await getStore();
-  const result = await linksCommand(store, slug);
+  const filter = cmdOpts?.filter;
+  const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats });
   if (result.output) process.stdout.write(result.output + "\n");
   exit(result.exitCode);
 });
@@ -40883,8 +41182,8 @@ program2.command("archive <slug>").description("Move a card to archive").action(
     exit(1);
   }
 });
-program2.command("serve").description("Start web UI for browsing cards").option("-p, --port <n>", "Port number", "3939").action(async (opts) => {
-  await serveCommand(parseInt(opts.port));
+program2.command("serve").description("Start web UI for browsing cards").option("-p, --port <n>", "Port number", "3939").option("--local", "Force local UI even when sync is configured (skip memra.vercel.app redirect)").action(async (opts) => {
+  await serveCommand(parseInt(opts.port), { local: opts.local });
 });
 program2.command("sync").description("Sync cards across devices via git").option("--init", "Initialize sync").option("--status", "Show sync status").argument("[arg]", "Remote URL (for --init) or on/off (toggle auto-sync)").action(
   async (arg, opts) => {
@@ -40953,17 +41252,18 @@ program2.command("import [source]").description("Import memories from other tool
     exit(1);
   }
 });
-program2.command("doctor").description("Check memex health and configuration").option("--check-collisions", "Check for slug collisions in basename mode").action(async (opts) => {
+program2.command("doctor").description("Check memex health and configuration").option("--check-collisions", "Check for slug collisions in basename mode").option("--verbose", "Show detailed output for warnings").option("--json", "Output results as JSON for programmatic use").action(async (opts) => {
   const home = await resolveMemexHome();
   const cardsDir = join13(home, "cards");
   const archiveDir = join13(home, "archive");
   if (opts.checkCollisions) {
-    const result = await doctorCommand(cardsDir, archiveDir);
+    const result = await doctorCommand(cardsDir, archiveDir, opts.json);
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   } else {
-    process.stderr.write("No check specified. Use --check-collisions to check for slug collisions.\n");
-    exit(1);
+    const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json);
+    if (result.output) process.stdout.write(result.output + "\n");
+    exit(result.exitCode);
   }
 });
 program2.command("migrate").description("Migrate memex configuration").option("--enable-nested", "Enable nestedSlugs in config").action(async (opts) => {

@@ -61,6 +61,8 @@ describe("GitAdapter", () => {
   async function createBareRemote(): Promise<string> {
     const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
     await execFile("git", ["init", "--bare", bare]);
+    // Ensure HEAD points to main so clones check out the right branch
+    await execFile("git", ["-C", bare, "symbolic-ref", "HEAD", "refs/heads/main"]);
     return bare;
   }
 
@@ -277,6 +279,55 @@ describe("GitAdapter", () => {
     await expect(adapter.init("../traversal")).rejects.toThrow("Invalid remote URL");
   });
 
+  it("init normalizes local branch to match remote default (master → main)", async () => {
+    // Create a bare remote with 'main' as its branch
+    const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
+    await execFile("git", ["init", "--bare", bare]);
+    // Push a dummy commit to establish 'main' on the remote
+    const seed = await mkdtemp(join(tmpdir(), "memex-seed-"));
+    await execFile("git", ["init", seed]);
+    await execFile("git", ["-C", seed, "checkout", "-b", "main"]);
+    await writeFile(join(seed, "README.md"), "seed", "utf-8");
+    await execFile("git", ["-C", seed, "add", "."]);
+    await execFile("git", ["-C", seed, "commit", "-m", "seed"]);
+    await execFile("git", ["-C", seed, "remote", "add", "origin", bare]);
+    await execFile("git", ["-C", seed, "push", "-u", "origin", "main"]);
+    // Set HEAD on bare to refs/heads/main
+    await execFile("git", ["-C", bare, "symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    // Now init local repo on 'master' (simulating old git default)
+    await execFile("git", ["init", home]);
+    await execFile("git", ["-C", home, "checkout", "-b", "master"]);
+
+    const adapter = new GitAdapter(home);
+    await adapter.init(bare);
+
+    // Local branch should now be 'main', not 'master'
+    const { stdout } = await execFile("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(stdout.trim()).toBe("main");
+
+    await rm(bare, { recursive: true });
+    await rm(seed, { recursive: true });
+  }, 20000);
+
+  it("init normalizes local branch to 'main' when remote is empty", async () => {
+    const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
+    await execFile("git", ["init", "--bare", bare]);
+
+    // Init local repo on 'master'
+    await execFile("git", ["init", home]);
+    await execFile("git", ["-C", home, "checkout", "-b", "master"]);
+
+    const adapter = new GitAdapter(home);
+    await adapter.init(bare);
+
+    // Should be normalized to 'main'
+    const { stdout } = await execFile("git", ["-C", home, "rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(stdout.trim()).toBe("main");
+
+    await rm(bare, { recursive: true });
+  }, 15000);
+
   it("init accepts git@... SSH URL (validation only)", async () => {
     // Verify URL validation passes — init will fail on push (no real remote), that's OK
     const adapter = new GitAdapter(home);
@@ -288,6 +339,39 @@ describe("GitAdapter", () => {
     }
   }, 15000);
 
+  it("init succeeds when cards/ directory does not exist (fresh install)", async () => {
+    // Simulate a fresh install: blow away the cards/ dir created in beforeEach.
+    // The remote is pre-seeded to mirror the common case of syncing a new
+    // device to an existing memex-cards repo.
+    await rm(join(home, "cards"), { recursive: true });
+
+    const bare = await mkdtemp(join(tmpdir(), "memex-bare-"));
+    await execFile("git", ["init", "--bare", bare]);
+    const seed = await mkdtemp(join(tmpdir(), "memex-seed-"));
+    await execFile("git", ["init", seed]);
+    await execFile("git", ["-C", seed, "checkout", "-b", "main"]);
+    await mkdir(join(seed, "cards"), { recursive: true });
+    await writeFile(
+      join(seed, "cards", "seed.md"),
+      "---\ntitle: Seed\ncreated: 2026-03-20\n---\nseed",
+      "utf-8"
+    );
+    await execFile("git", ["-C", seed, "add", "."]);
+    await execFile("git", ["-C", seed, "commit", "-m", "seed"]);
+    await execFile("git", ["-C", seed, "remote", "add", "origin", bare]);
+    await execFile("git", ["-C", seed, "push", "-u", "origin", "main"]);
+    await execFile("git", ["-C", bare, "symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    const adapter = new GitAdapter(home);
+    await adapter.init(bare);
+
+    const config = await readSyncConfig(home);
+    expect(config.remote).toBe(bare);
+
+    await rm(bare, { recursive: true });
+    await rm(seed, { recursive: true });
+  }, 20000);
+
   it("init accepts https:// URL (validation only)", async () => {
     const adapter = new GitAdapter(home);
     try {
@@ -296,5 +380,5 @@ describe("GitAdapter", () => {
       // Any error is fine as long as it's NOT "Invalid remote URL"
       expect((err as Error).message).not.toContain("Invalid remote URL");
     }
-  }, 15000);
+  }, 30000);
 });

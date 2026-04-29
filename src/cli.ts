@@ -16,7 +16,7 @@ import { archiveCommand } from "./commands/archive.js";
 import { serveCommand } from "./commands/serve.js";
 import { syncCommand } from "./commands/sync.js";
 import { importCommand } from "./commands/import.js";
-import { doctorCommand } from "./commands/doctor.js";
+import { doctorCommand, doctorRunAll } from "./commands/doctor.js";
 import { migrateCommand } from "./commands/migrate.js";
 import { backlinksCommand } from "./commands/backlinks.js";
 import { organizeCommand } from "./commands/organize.js";
@@ -106,9 +106,12 @@ program
 program
   .command("links [slug]")
   .description("Show link graph stats or specific card links")
-  .action(async (slug?: string) => {
+  .option("--filter <type>", "Filter cards: orphan or hub")
+  .option("--stats", "Show summary statistics instead of card list")
+  .action(async (slug?: string, cmdOpts?: { filter?: string; stats?: boolean }) => {
     const store = await getStore();
-    const result = await linksCommand(store, slug);
+    const filter = cmdOpts?.filter as "orphan" | "hub" | undefined;
+    const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats });
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   });
@@ -143,8 +146,9 @@ program
   .command("serve")
   .description("Start web UI for browsing cards")
   .option("-p, --port <n>", "Port number", "3939")
-  .action(async (opts: { port: string }) => {
-    await serveCommand(parseInt(opts.port));
+  .option("--local", "Force local UI even when sync is configured (skip memra.vercel.app redirect)")
+  .action(async (opts: { port: string; local?: boolean }) => {
+    await serveCommand(parseInt(opts.port), { local: opts.local });
   });
 
 program
@@ -251,18 +255,21 @@ program
   .command("doctor")
   .description("Check memex health and configuration")
   .option("--check-collisions", "Check for slug collisions in basename mode")
-  .action(async (opts: { checkCollisions?: boolean }) => {
+  .option("--verbose", "Show detailed output for warnings")
+  .option("--json", "Output results as JSON for programmatic use")
+  .action(async (opts: { checkCollisions?: boolean; verbose?: boolean; json?: boolean }) => {
     const home = await resolveMemexHome();
     const cardsDir = join(home, "cards");
     const archiveDir = join(home, "archive");
 
     if (opts.checkCollisions) {
-      const result = await doctorCommand(cardsDir, archiveDir);
+      const result = await doctorCommand(cardsDir, archiveDir, opts.json);
       if (result.output) process.stdout.write(result.output + "\n");
       exit(result.exitCode);
     } else {
-      process.stderr.write("No check specified. Use --check-collisions to check for slug collisions.\n");
-      exit(1);
+      const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json);
+      if (result.output) process.stdout.write(result.output + "\n");
+      exit(result.exitCode);
     }
   });
 
