@@ -380,5 +380,5 @@ describe("GitAdapter", () => {
       // Any error is fine as long as it's NOT "Invalid remote URL"
       expect((err as Error).message).not.toContain("Invalid remote URL");
     }
-  }, 15000);
+  }, 30000);
 });

@@ -86,9 +86,29 @@ export async function syncCommand(
   // Default: sync
   const config = await readSyncConfig(home);
   if (!config.remote) {
+    // Detect user state for better guidance
+    let hint = "";
+    try {
+      const { execFile: execFileCb } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFile = promisify(execFileCb);
+      await execFile("gh", ["--version"]);
+      // gh available — check if they have an existing repo
+      try {
+        const { stdout: user } = await execFile("gh", ["api", "user", "-q", ".login"]);
+        const { stdout: repoUrl } = await execFile("gh", [
+          "repo", "view", `${user.trim()}/memex-cards`, "--json", "url", "-q", ".url",
+        ]);
+        hint = `\n\nDetected existing repo: ${repoUrl.trim()}\nRun: memex sync --init`;
+      } catch {
+        hint = "\n\nNo existing memex-cards repo found. Run: memex sync --init\n(This will create a private GitHub repo automatically.)";
+      }
+    } catch {
+      hint = "\n\nInstall gh CLI (https://cli.github.com) for auto-setup,\nor provide a URL: memex sync --init <git-url>";
+    }
     return {
       success: false,
-      error: "Not initialized. Run `memex sync --init` first.",
+      error: `Sync not initialized.${hint}`,
     };
   }
 

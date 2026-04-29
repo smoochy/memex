@@ -91,7 +91,7 @@ describe("syncCommand", () => {
     // Simulates what the fixed CLI does: without --init, arg is NOT passed as remote
     const result = await syncCommand(home, { init: false, remote: undefined });
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Not initialized");
+    expect(result.error).toContain("Sync not initialized");
   });
 
   it("--init with URL still works", async () => {

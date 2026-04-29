@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { randomBytes } from "node:crypto";
 
 const execFile = promisify(execFileCb);
 
@@ -53,11 +54,10 @@ export async function writeSyncConfig(
   config: SyncConfig
 ): Promise<void> {
   await mkdir(home, { recursive: true });
-  await writeFile(
-    join(home, CONFIG_FILE),
-    JSON.stringify(config, null, 2),
-    "utf-8"
-  );
+  const target = join(home, CONFIG_FILE);
+  const tmp = target + "." + randomBytes(4).toString("hex") + ".tmp";
+  await writeFile(tmp, JSON.stringify(config, null, 2), "utf-8");
+  await rename(tmp, target); // atomic on POSIX
 }
 
 // ---- Git helpers ----
@@ -137,9 +137,18 @@ export class GitAdapter implements SyncAdapter {
         );
       }
       // Try to reuse existing repo first, create only if it doesn't exist
+      let ghUser: string;
+      try {
+        const { stdout: userOut } = await execFile("gh", [
+          "api", "user", "-q", ".login",
+        ]);
+        ghUser = userOut.trim();
+      } catch {
+        throw new Error("Cannot determine GitHub username. Ensure `gh auth login` is complete.");
+      }
       try {
         const { stdout } = await execFile("gh", [
-          "repo", "view", "memex-cards", "--json", "url", "-q", ".url",
+          "repo", "view", `${ghUser}/memex-cards`, "--json", "url", "-q", ".url",
         ]);
         url = stdout.trim();
       } catch {
@@ -231,11 +240,22 @@ export class GitAdapter implements SyncAdapter {
       try {
         const remoteBranch = await detectRemoteBranch(this.home);
         // Remote has commits — merge with allow-unrelated-histories
-        await execFile("git", [
-          "-C", this.home, "merge", remoteBranch,
-          "--allow-unrelated-histories", "--no-edit",
-        ]);
-      } catch {
+        try {
+          await execFile("git", [
+            "-C", this.home, "merge", remoteBranch,
+            "--allow-unrelated-histories", "--no-edit",
+          ]);
+        } catch (mergeErr) {
+          // Merge conflict — abort and surface to user
+          try { await execFile("git", ["-C", this.home, "merge", "--abort"]); } catch { /* ignore */ }
+          throw new Error(
+            `Merge conflict during init. Your local cards conflict with remote.\n` +
+            `Run: cd ${this.home} && git fetch origin && git merge origin/main --allow-unrelated-histories\n` +
+            `Then resolve conflicts and run \`memex sync --init\` again.`
+          );
+        }
+      } catch (err) {
+        if ((err as Error).message?.includes("Merge conflict")) throw err;
         // No remote branch yet — fresh repo, push will create it
       }
     } catch {
