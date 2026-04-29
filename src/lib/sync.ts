@@ -322,6 +322,15 @@ export class GitAdapter implements SyncAdapter {
       const remoteBranch = await detectRemoteBranch(this.home);
       await execFile("git", ["-C", this.home, "merge", remoteBranch, "--no-edit"]);
     } catch {
+      // Merge conflict — auto-resolve: keep ours, save theirs as conflict copies
+      const resolved = await this.autoResolveConflicts();
+      if (resolved.length > 0) {
+        return {
+          success: true,
+          message: `Pulled with conflicts auto-resolved. ${resolved.length} conflict file(s) saved: ${resolved.join(", ")}`,
+        };
+      }
+      // If auto-resolve failed (non-card conflicts or unexpected state), abort
       try { await execFile("git", ["-C", this.home, "merge", "--abort"]); } catch { /* ignore */ }
       return {
         success: false,
@@ -329,6 +338,69 @@ export class GitAdapter implements SyncAdapter {
       };
     }
     return { success: true, message: "Pulled latest." };
+  }
+
+  /**
+   * Auto-resolve merge conflicts by keeping local (ours) and saving remote (theirs)
+   * as <slug>-conflict-<timestamp>.md. Returns list of conflict copy filenames.
+   * If any file cannot be resolved, aborts and returns empty array.
+   */
+  private async autoResolveConflicts(): Promise<string[]> {
+    // List conflicted files
+    let conflictFiles: string[];
+    try {
+      const { stdout } = await execFile("git", [
+        "-C", this.home, "diff", "--name-only", "--diff-filter=U",
+      ]);
+      conflictFiles = stdout.trim().split("\n").filter(Boolean);
+    } catch {
+      return [];
+    }
+    if (conflictFiles.length === 0) return [];
+
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+    const conflictCopies: string[] = [];
+
+    for (const relPath of conflictFiles) {
+      // Only auto-resolve .md files in cards/ or archive/
+      if (!relPath.endsWith(".md") || !(relPath.startsWith("cards/") || relPath.startsWith("archive/"))) {
+        return []; // Non-card conflict — bail out, let user handle
+      }
+
+      // Save theirs version as conflict copy
+      try {
+        const { stdout: theirsContent } = await execFile("git", [
+          "-C", this.home, "show", `:3:${relPath}`,
+        ]);
+        const conflictName = relPath.replace(/\.md$/, `-conflict-${timestamp}.md`);
+        const conflictPath = join(this.home, conflictName);
+        await mkdir(dirname(conflictPath), { recursive: true });
+        await writeFile(conflictPath, theirsContent, "utf-8");
+        conflictCopies.push(conflictName);
+      } catch {
+        // :3: (theirs) doesn't exist = deleted on remote side, just keep ours
+      }
+
+      // Checkout ours for the conflicted file
+      try {
+        await execFile("git", ["-C", this.home, "checkout", "--ours", relPath]);
+        await execFile("git", ["-C", this.home, "add", relPath]);
+      } catch {
+        return []; // Can't resolve — bail
+      }
+    }
+
+    // Stage conflict copies and commit
+    try {
+      for (const copy of conflictCopies) {
+        await execFile("git", ["-C", this.home, "add", copy]);
+      }
+      await execFile("git", ["-C", this.home, "commit", "--no-edit"]);
+    } catch {
+      return []; // Commit failed — bail
+    }
+
+    return conflictCopies;
   }
 
   async push(): Promise<SyncResult> {

@@ -196,8 +196,21 @@ describe("GitAdapter", () => {
     await execFile("git", ["-C", home, "commit", "-m", "local conflicting change"]);
 
     const result = await adapter.pull();
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("Merge conflict");
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("conflicts auto-resolved");
+    expect(result.message).toContain("conflict");
+
+    // Verify local version is preserved (ours)
+    const localContent = await readFile(join(home, "cards", "test.md"), "utf-8");
+    expect(localContent).toContain("Conflicting content from local");
+
+    // Verify theirs is saved as conflict copy
+    const { readdir: readdirSync } = await import("node:fs/promises");
+    const cards = await readdirSync(join(home, "cards"));
+    const conflictFile = cards.find((f: string) => f.includes("-conflict-"));
+    expect(conflictFile).toBeDefined();
+    const theirsContent = await readFile(join(home, "cards", conflictFile!), "utf-8");
+    expect(theirsContent).toContain("Conflicting content from clone2");
 
     await rm(bare, { recursive: true });
     await rm(clone2, { recursive: true });

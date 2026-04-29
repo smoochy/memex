@@ -7190,7 +7190,7 @@ var init_parser = __esm({
 
 // src/lib/sync.ts
 import { readFile as readFile3, writeFile as writeFile2, mkdir as mkdir2, rename as rename2 } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { join as join3, dirname as dirname3 } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
@@ -7481,6 +7481,13 @@ Then resolve conflicts and run \`memex sync --init\` again.`
           const remoteBranch = await detectRemoteBranch(this.home);
           await execFile("git", ["-C", this.home, "merge", remoteBranch, "--no-edit"]);
         } catch {
+          const resolved = await this.autoResolveConflicts();
+          if (resolved.length > 0) {
+            return {
+              success: true,
+              message: `Pulled with conflicts auto-resolved. ${resolved.length} conflict file(s) saved: ${resolved.join(", ")}`
+            };
+          }
           try {
             await execFile("git", ["-C", this.home, "merge", "--abort"]);
           } catch {
@@ -7491,6 +7498,63 @@ Then resolve conflicts and run \`memex sync --init\` again.`
           };
         }
         return { success: true, message: "Pulled latest." };
+      }
+      /**
+       * Auto-resolve merge conflicts by keeping local (ours) and saving remote (theirs)
+       * as <slug>-conflict-<timestamp>.md. Returns list of conflict copy filenames.
+       * If any file cannot be resolved, aborts and returns empty array.
+       */
+      async autoResolveConflicts() {
+        let conflictFiles;
+        try {
+          const { stdout } = await execFile("git", [
+            "-C",
+            this.home,
+            "diff",
+            "--name-only",
+            "--diff-filter=U"
+          ]);
+          conflictFiles = stdout.trim().split("\n").filter(Boolean);
+        } catch {
+          return [];
+        }
+        if (conflictFiles.length === 0) return [];
+        const timestamp = (/* @__PURE__ */ new Date()).toISOString().slice(0, 19).replace(/[T:]/g, "-");
+        const conflictCopies = [];
+        for (const relPath of conflictFiles) {
+          if (!relPath.endsWith(".md") || !(relPath.startsWith("cards/") || relPath.startsWith("archive/"))) {
+            return [];
+          }
+          try {
+            const { stdout: theirsContent } = await execFile("git", [
+              "-C",
+              this.home,
+              "show",
+              `:3:${relPath}`
+            ]);
+            const conflictName = relPath.replace(/\.md$/, `-conflict-${timestamp}.md`);
+            const conflictPath = join3(this.home, conflictName);
+            await mkdir2(dirname3(conflictPath), { recursive: true });
+            await writeFile2(conflictPath, theirsContent, "utf-8");
+            conflictCopies.push(conflictName);
+          } catch {
+          }
+          try {
+            await execFile("git", ["-C", this.home, "checkout", "--ours", relPath]);
+            await execFile("git", ["-C", this.home, "add", relPath]);
+          } catch {
+            return [];
+          }
+        }
+        try {
+          for (const copy of conflictCopies) {
+            await execFile("git", ["-C", this.home, "add", copy]);
+          }
+          await execFile("git", ["-C", this.home, "commit", "--no-edit"]);
+        } catch {
+          return [];
+        }
+        return conflictCopies;
       }
       async push() {
         const config2 = await readSyncConfig(this.home);
