@@ -39967,9 +39967,23 @@ var server_exports = {};
 __export(server_exports, {
   createMemexServer: () => createMemexServer
 });
-import { readFileSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync } from "node:fs";
 import { join as join12, dirname as dirname9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+function readPackageJson(startDir) {
+  let dir = startDir;
+  for (let depth = 0; depth < 6; depth++) {
+    const path = join12(dir, "package.json");
+    if (existsSync2(path)) {
+      const pkg3 = JSON.parse(readFileSync(path, "utf-8"));
+      if (pkg3.name === "@touchskyer/memex") return pkg3;
+    }
+    const parent = dirname9(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return { version: "0.0.0" };
+}
 function createMemexServer(store, home) {
   const server = new McpServer({
     name: "memex",
@@ -40079,7 +40093,7 @@ var init_server3 = __esm({
     init_operations();
     init_zod();
     __dirname2 = dirname9(fileURLToPath2(import.meta.url));
-    pkg = JSON.parse(readFileSync(join12(__dirname2, "..", "..", "package.json"), "utf-8"));
+    pkg = readPackageJson(__dirname2);
   }
 });
 
