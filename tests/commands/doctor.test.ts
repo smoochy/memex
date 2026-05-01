@@ -285,3 +285,52 @@ describe("doctorRunAll", () => {
     expect(parsed[2]).not.toHaveProperty("details");
   });
 });
+
+describe("doctor nested slug link resolution", () => {
+  let tmpDir: string;
+  let cardsDir: string;
+  let archiveDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "memex-test-"));
+    cardsDir = join(tmpDir, "cards");
+    archiveDir = join(tmpDir, "archive");
+    await mkdir(cardsDir, { recursive: true });
+    await mkdir(archiveDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("resolves basename links to nested slugs (no false broken links)", async () => {
+    await mkdir(join(cardsDir, "projects"), { recursive: true });
+    await writeFile(join(cardsDir, "projects", "myproj.md"), "project content");
+    await writeFile(join(cardsDir, "index.md"), "see [[myproj]] for details");
+
+    const result = await checkBrokenLinks(cardsDir, archiveDir);
+    expect(result.status).toBe("ok");
+  });
+
+  it("still reports truly broken links with nested slugs", async () => {
+    await mkdir(join(cardsDir, "projects"), { recursive: true });
+    await writeFile(join(cardsDir, "projects", "real.md"), "content");
+    await writeFile(join(cardsDir, "index.md"), "see [[real]] and [[ghost]]");
+
+    const result = await checkBrokenLinks(cardsDir, archiveDir);
+    expect(result.status).toBe("warn");
+    expect(result.details).toHaveLength(1);
+    expect(result.details![0]).toContain("ghost");
+  });
+
+  it("counts inbound links correctly via basename resolution for orphan check", async () => {
+    await mkdir(join(cardsDir, "projects"), { recursive: true });
+    await writeFile(join(cardsDir, "projects", "target.md"), "project");
+    await writeFile(join(cardsDir, "hub.md"), "link to [[target]]");
+
+    const result = await checkOrphans(cardsDir, archiveDir);
+    const orphanSlugs = result.details || [];
+    expect(orphanSlugs).toContain("hub");
+    expect(orphanSlugs).not.toContain("projects/target");
+  });
+});

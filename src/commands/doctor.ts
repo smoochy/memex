@@ -85,6 +85,7 @@ export async function checkOrphans(
       return { name: "Orphans", status: "ok", message: "no cards found" };
     }
 
+    const resolveLink = store.buildLinkResolver(cards);
     const inboundMap = new Map<string, number>();
     for (const card of cards) {
       inboundMap.set(card.slug, 0);
@@ -95,8 +96,9 @@ export async function checkOrphans(
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (inboundMap.has(link)) {
-          inboundMap.set(link, (inboundMap.get(link) || 0) + 1);
+        const resolved = resolveLink(link) ?? link;
+        if (inboundMap.has(resolved)) {
+          inboundMap.set(resolved, (inboundMap.get(resolved) || 0) + 1);
         }
       }
     }
@@ -137,7 +139,7 @@ export async function checkBrokenLinks(
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
     const cards = await store.scanAll();
-    const knownSlugs = new Set(cards.map((c) => c.slug));
+    const resolveLink = store.buildLinkResolver(cards);
     const broken: { from: string; to: string }[] = [];
 
     for (const card of cards) {
@@ -145,7 +147,7 @@ export async function checkBrokenLinks(
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (!knownSlugs.has(link)) {
+        if (!resolveLink(link)) {
           broken.push({ from: card.slug, to: link });
         }
       }

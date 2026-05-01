@@ -19,6 +19,7 @@ export async function linksCommand(store: CardStore, slug: string | undefined, o
   const cards = await store.scanAll();
   if (cards.length === 0) return { output: "", exitCode: 0 };
 
+  const resolveLink = store.buildLinkResolver(cards);
   const outboundMap = new Map<string, string[]>();
   const inboundMap = new Map<string, string[]>();
 
@@ -33,9 +34,10 @@ export async function linksCommand(store: CardStore, slug: string | undefined, o
     outboundMap.set(card.slug, links);
 
     for (const link of links) {
-      const existing = inboundMap.get(link) || [];
+      const resolved = resolveLink(link) ?? link;
+      const existing = inboundMap.get(resolved) || [];
       existing.push(card.slug);
-      inboundMap.set(link, existing);
+      inboundMap.set(resolved, existing);
     }
   }
 

@@ -316,4 +316,87 @@ describe("CardStore with nestedSlugs", () => {
       await expect(store.resolve("sub/old")).resolves.toBeNull();
     });
   });
+
+  describe("resolveLink", () => {
+    let nestedStore: CardStore;
+
+    beforeEach(async () => {
+      nestedStore = new CardStore(cardsDir, archiveDir, true);
+    });
+
+    it("resolves exact slug match", async () => {
+      await writeFile(join(cardsDir, "hello.md"), "content");
+      expect(await nestedStore.resolveLink("hello")).toBe("hello");
+    });
+
+    it("resolves nested slug by exact path", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "projects", "foo.md"), "content");
+      expect(await nestedStore.resolveLink("projects/foo")).toBe("projects/foo");
+    });
+
+    it("resolves basename to nested slug when unambiguous", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "projects", "bar.md"), "content");
+      // No root-level bar.md, so "bar" should resolve to "projects/bar"
+      expect(await nestedStore.resolveLink("bar")).toBe("projects/bar");
+    });
+
+    it("returns null for ambiguous basename", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await mkdir(join(cardsDir, "cards"), { recursive: true });
+      await writeFile(join(cardsDir, "projects", "dup.md"), "content");
+      await writeFile(join(cardsDir, "cards", "dup.md"), "content");
+      // Two cards with basename "dup" — ambiguous
+      expect(await nestedStore.resolveLink("dup")).toBeNull();
+    });
+
+    it("prefers exact match over basename fallback", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "baz.md"), "content");
+      await writeFile(join(cardsDir, "projects", "baz.md"), "content");
+      // Exact match for "baz" exists at root
+      expect(await nestedStore.resolveLink("baz")).toBe("baz");
+    });
+
+    it("returns null for non-existent slug", async () => {
+      expect(await nestedStore.resolveLink("nope")).toBeNull();
+    });
+  });
+
+  describe("buildLinkResolver", () => {
+    let nestedStore: CardStore;
+
+    beforeEach(async () => {
+      nestedStore = new CardStore(cardsDir, archiveDir, true);
+    });
+
+    it("resolves exact and basename links synchronously", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "root.md"), "content");
+      await writeFile(join(cardsDir, "projects", "deep.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("root")).toBe("root");
+      expect(resolve("projects/deep")).toBe("projects/deep");
+      expect(resolve("deep")).toBe("projects/deep");
+      expect(resolve("missing")).toBeNull();
+    });
+
+    it("returns null for ambiguous basename in resolver", async () => {
+      await mkdir(join(cardsDir, "a"), { recursive: true });
+      await mkdir(join(cardsDir, "b"), { recursive: true });
+      await writeFile(join(cardsDir, "a", "same.md"), "content");
+      await writeFile(join(cardsDir, "b", "same.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("same")).toBeNull();
+      expect(resolve("a/same")).toBe("a/same");
+      expect(resolve("b/same")).toBe("b/same");
+    });
+  });
 });

@@ -3541,6 +3541,54 @@ var init_store = __esm({
         const found = cards.find((c) => c.slug === normalised);
         return found?.path ?? null;
       }
+      /**
+       * Resolve a wikilink target to a known slug.
+       * 1. Exact match
+       * 2. Basename-only fallback (only if unambiguous — exactly one card has that basename)
+       * Returns the matched slug or null.
+       */
+      async resolveLink(link) {
+        const cards = await this.scanAll();
+        const normalised = link.replace(/\\/g, "/");
+        if (cards.some((c) => c.slug === normalised)) {
+          return normalised;
+        }
+        if (!normalised.includes("/")) {
+          const matches = cards.filter((c) => {
+            const parts = c.slug.split("/");
+            return parts[parts.length - 1] === normalised;
+          });
+          if (matches.length === 1) {
+            return matches[0].slug;
+          }
+        }
+        return null;
+      }
+      /**
+       * Build a synchronous link resolution map for batch operations.
+       * Returns a function that resolves a link text to a known slug.
+       */
+      buildLinkResolver(cards) {
+        const slugSet = new Set(cards.map((c) => c.slug));
+        const basenameIndex = /* @__PURE__ */ new Map();
+        for (const card of cards) {
+          const parts = card.slug.split("/");
+          const base = parts[parts.length - 1];
+          if (!basenameIndex.has(base)) {
+            basenameIndex.set(base, []);
+          }
+          basenameIndex.get(base).push(card.slug);
+        }
+        return (link) => {
+          const normalised = link.replace(/\\/g, "/");
+          if (slugSet.has(normalised)) return normalised;
+          if (!normalised.includes("/")) {
+            const matches = basenameIndex.get(normalised);
+            if (matches && matches.length === 1) return matches[0];
+          }
+          return null;
+        };
+      }
       async readCard(slug) {
         const path = await this.resolve(slug);
         if (!path) throw new Error(`Card not found: ${slug}`);
@@ -8430,6 +8478,7 @@ var init_search = __esm({
 async function linksCommand(store, slug, opts) {
   const cards = await store.scanAll();
   if (cards.length === 0) return { output: "", exitCode: 0 };
+  const resolveLink = store.buildLinkResolver(cards);
   const outboundMap = /* @__PURE__ */ new Map();
   const inboundMap = /* @__PURE__ */ new Map();
   for (const card of cards) {
@@ -8441,14 +8490,18 @@ async function linksCommand(store, slug, opts) {
     const links = extractLinks(content);
     outboundMap.set(card.slug, links);
     for (const link of links) {
-      const existing = inboundMap.get(link) || [];
+      const resolved = resolveLink(link) ?? link;
+      const existing = inboundMap.get(resolved) || [];
       existing.push(card.slug);
-      inboundMap.set(link, existing);
+      inboundMap.set(resolved, existing);
     }
   }
   if (slug) {
     const outbound = outboundMap.get(slug) || [];
     const inbound = inboundMap.get(slug) || [];
+    if (opts?.json) {
+      return { output: JSON.stringify({ slug, outbound, inbound }, null, 2), exitCode: 0 };
+    }
     return { output: formatCardLinks(slug, outbound, inbound), exitCode: 0 };
   }
   let stats = cards.map((card) => ({
@@ -8461,6 +8514,27 @@ async function linksCommand(store, slug, opts) {
     stats = stats.filter((s) => s.inbound === 0);
   } else if (filter === "hub") {
     stats = stats.filter((s) => s.inbound >= HUB_THRESHOLD2);
+  }
+  if (opts?.json) {
+    if (opts?.stats) {
+      const orphans = stats.filter((s) => s.inbound === 0).length;
+      const hubs = stats.filter((s) => s.inbound >= HUB_THRESHOLD2).length;
+      const totalOut = stats.reduce((sum, s) => sum + s.outbound, 0);
+      const totalIn = stats.reduce((sum, s) => sum + s.inbound, 0);
+      return {
+        output: JSON.stringify({
+          totalCards: cards.length,
+          showing: filter || "all",
+          count: stats.length,
+          orphans,
+          hubs,
+          avgOutbound: stats.length > 0 ? +(totalOut / stats.length).toFixed(1) : 0,
+          avgInbound: stats.length > 0 ? +(totalIn / stats.length).toFixed(1) : 0
+        }, null, 2),
+        exitCode: 0
+      };
+    }
+    return { output: JSON.stringify(stats, null, 2), exitCode: 0 };
   }
   if (opts?.stats) {
     return { output: formatLinkSummary(stats, cards.length, filter), exitCode: 0 };
@@ -40990,6 +41064,7 @@ async function checkOrphans(cardsDir, archiveDir, verbose) {
     if (cards.length === 0) {
       return { name: "Orphans", status: "ok", message: "no cards found" };
     }
+    const resolveLink = store.buildLinkResolver(cards);
     const inboundMap = /* @__PURE__ */ new Map();
     for (const card of cards) {
       inboundMap.set(card.slug, 0);
@@ -40999,8 +41074,9 @@ async function checkOrphans(cardsDir, archiveDir, verbose) {
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (inboundMap.has(link)) {
-          inboundMap.set(link, (inboundMap.get(link) || 0) + 1);
+        const resolved = resolveLink(link) ?? link;
+        if (inboundMap.has(resolved)) {
+          inboundMap.set(resolved, (inboundMap.get(resolved) || 0) + 1);
         }
       }
     }
@@ -41031,14 +41107,14 @@ async function checkBrokenLinks(cardsDir, archiveDir, verbose) {
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
     const cards = await store.scanAll();
-    const knownSlugs = new Set(cards.map((c) => c.slug));
+    const resolveLink = store.buildLinkResolver(cards);
     const broken = [];
     for (const card of cards) {
       const raw = await store.readCard(card.slug);
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (!knownSlugs.has(link)) {
+        if (!resolveLink(link)) {
           broken.push({ from: card.slug, to: link });
         }
       }
@@ -41283,10 +41359,10 @@ program2.command("write <slug>").description("Write a card (content via stdin)")
     exit(1);
   }
 });
-program2.command("links [slug]").description("Show link graph stats or specific card links").option("--filter <type>", "Filter cards: orphan or hub").option("--stats", "Show summary statistics instead of card list").action(async (slug, cmdOpts) => {
+program2.command("links [slug]").description("Show link graph stats or specific card links").option("--filter <type>", "Filter cards: orphan or hub").option("--stats", "Show summary statistics instead of card list").option("--json", "Output results as JSON for programmatic use").action(async (slug, cmdOpts) => {
   const store = await getStore();
   const filter = cmdOpts?.filter;
-  const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats });
+  const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats, json: cmdOpts?.json });
   if (result.output) process.stdout.write(result.output + "\n");
   exit(result.exitCode);
 });
