@@ -74,7 +74,7 @@ src/
 │   ├── hooks.ts              # HookRegistry: pre/post lifecycle hooks
 │   ├── sync.ts               # GitAdapter, SyncConfig, autoSync/autoFetch
 │   ├── config.ts             # .memexrc reader
-│   ├── embeddings.ts         # OpenAI/Local/Ollama providers, cache, cosine similarity
+│   ├── embeddings.ts         # OpenAI/Azure/Local/Ollama providers, cache, cosine similarity
 │   └── utils.ts              # semverSort utility
 ├── importers/
 │   ├── index.ts              # Importer registry
@@ -206,10 +206,10 @@ post:organize → autoSync
 
 ### Semantic Search (`--semantic`)
 
-- Providers: OpenAI (`text-embedding-3-small`), Local (`node-llama-cpp` + GGUF), Ollama (`nomic-embed-text`)
+- Providers: OpenAI (`text-embedding-3-small`), Azure OpenAI (`text-embedding-3-large` deployment), Local (`node-llama-cpp` + GGUF), Ollama (`nomic-embed-text`)
 - Hybrid scoring: `0.7 * semantic + 0.3 * keyword_normalized`
 - Embedding cache: `~/.memex/.memex/embeddings/<model>.json`, invalidated by SHA-256 content hash
-- Auto-detection: OpenAI API key → node-llama-cpp → Ollama → error
+- Auto-detection: OpenAI API key -> Azure OpenAI endpoint + key -> node-llama-cpp -> error; Ollama is explicit-only
 
 ### Manifest Filters
 
@@ -296,10 +296,13 @@ npm run test:watch    # vitest watch mode
 |-------|------|---------|-------|
 | `nestedSlugs` | boolean | false | Path-preserving slugs |
 | `searchDirs` | string[] | — | Extra dirs for `--all` |
-| `embeddingProvider` | "openai"\|"local"\|"ollama" | auto-detect | |
+| `embeddingProvider` | "openai"\|"azure"\|"local"\|"ollama" | auto-detect | |
 | `openaiApiKey` | string | env `OPENAI_API_KEY` | |
 | `openaiBaseUrl` | string | `https://api.openai.com` | |
-| `embeddingModel` | string | `text-embedding-3-small` | |
+| `embeddingModel` | string | `text-embedding-3-small` | OpenAI model or Azure deployment | |
+| `azureOpenaiEndpoint` | string | env `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint, e.g. `/openai/v1/` |
+| `azureOpenaiApiKey` | string | env `AZURE_OPENAI_API_KEY` | Prefer env/key file |
+| `azureOpenaiApiKeyPath` | string | `~/.azure_api_key` | Local key file path |
 | `ollamaModel` | string | `nomic-embed-text` | |
 | `ollamaBaseUrl` | string | `http://localhost:11434` | |
 | `localModelPath` | string | HuggingFace URI | |
@@ -310,6 +313,10 @@ npm run test:watch    # vitest watch mode
 |-----|---------|
 | `MEMEX_HOME` | Override home dir (default `~/.memex`) |
 | `OPENAI_API_KEY` | OpenAI embeddings |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
+| `AZURE_OPENAI_API_KEY_FILE` | Azure OpenAI API key file path |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Azure OpenAI embedding deployment override |
 | `OPENAI_BASE_URL` | Custom OpenAI endpoint |
 | `MEMEX_EMBEDDING_PROVIDER` | Force provider type |
 | `MEMEX_OLLAMA_MODEL` | Ollama model override |

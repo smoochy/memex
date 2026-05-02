@@ -88,6 +88,12 @@ describe("readConfig", () => {
     expect(config.embeddingProvider).toBe("ollama");
   });
 
+  it("reads embeddingProvider: azure from config file", async () => {
+    await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ embeddingProvider: "azure" }));
+    const config = await readConfig(tmpDir);
+    expect(config.embeddingProvider).toBe("azure");
+  });
+
   it("treats invalid embeddingProvider as undefined", async () => {
     await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ embeddingProvider: "invalid" }));
     const config = await readConfig(tmpDir);
@@ -112,6 +118,23 @@ describe("readConfig", () => {
     expect(config.ollamaBaseUrl).toBe("http://myhost:11434");
   });
 
+  it("reads Azure OpenAI config from config file", async () => {
+    await writeFile(
+      join(tmpDir, ".memexrc"),
+      JSON.stringify({
+        azureOpenaiEndpoint: "https://example.openai.azure.com/openai/v1/",
+        azureOpenaiApiKey: "azure-test-key",
+        azureOpenaiApiKeyPath: "~/.azure_api_key",
+        embeddingModel: "text-embedding-3-large",
+      })
+    );
+    const config = await readConfig(tmpDir);
+    expect(config.azureOpenaiEndpoint).toBe("https://example.openai.azure.com/openai/v1/");
+    expect(config.azureOpenaiApiKey).toBe("azure-test-key");
+    expect(config.azureOpenaiApiKeyPath).toBe("~/.azure_api_key");
+    expect(config.embeddingModel).toBe("text-embedding-3-large");
+  });
+
   it("reads localModelPath from config file", async () => {
     await writeFile(join(tmpDir, ".memexrc"), JSON.stringify({ localModelPath: "/path/to/model.gguf" }));
     const config = await readConfig(tmpDir);
@@ -128,6 +151,8 @@ describe("readConfig", () => {
         ollamaBaseUrl: "http://localhost:11434",
         localModelPath: "hf:some/model",
         openaiApiKey: "sk-test",
+        azureOpenaiEndpoint: "https://example.openai.azure.com/openai/v1/",
+        azureOpenaiApiKeyPath: "~/.azure_api_key",
       })
     );
     const config = await readConfig(tmpDir);
@@ -136,5 +161,7 @@ describe("readConfig", () => {
     expect(config.ollamaBaseUrl).toBe("http://localhost:11434");
     expect(config.localModelPath).toBe("hf:some/model");
     expect(config.openaiApiKey).toBe("sk-test");
+    expect(config.azureOpenaiEndpoint).toBe("https://example.openai.azure.com/openai/v1/");
+    expect(config.azureOpenaiApiKeyPath).toBe("~/.azure_api_key");
   });
 });

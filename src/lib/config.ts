@@ -9,8 +9,14 @@ export interface MemexConfig {
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   embeddingModel?: string;
-  /** Embedding provider: "openai" | "local" | "ollama". Auto-detected if omitted. */
+  /** Embedding provider: "openai" | "azure" | "local" | "ollama". Auto-detected if omitted. */
   embeddingProvider?: EmbeddingProviderType;
+  /** Azure OpenAI endpoint, e.g. https://resource.openai.azure.com/openai/v1/ */
+  azureOpenaiEndpoint?: string;
+  /** Azure OpenAI API key. Prefer env/key file for local secrets. */
+  azureOpenaiApiKey?: string;
+  /** Path to Azure OpenAI API key file (default: ~/.azure_api_key). */
+  azureOpenaiApiKeyPath?: string;
   /** Ollama model name (default: "nomic-embed-text"). */
   ollamaModel?: string;
   /** Ollama base URL (default: "http://localhost:11434"). */
@@ -37,6 +43,9 @@ export async function readConfig(memexHome: string): Promise<MemexConfig> {
       openaiBaseUrl: typeof parsed.openaiBaseUrl === "string" ? parsed.openaiBaseUrl : undefined,
       embeddingModel: typeof parsed.embeddingModel === "string" ? parsed.embeddingModel : undefined,
       embeddingProvider: isValidProvider(parsed.embeddingProvider) ? parsed.embeddingProvider : undefined,
+      azureOpenaiEndpoint: typeof parsed.azureOpenaiEndpoint === "string" ? parsed.azureOpenaiEndpoint : undefined,
+      azureOpenaiApiKey: typeof parsed.azureOpenaiApiKey === "string" ? parsed.azureOpenaiApiKey : undefined,
+      azureOpenaiApiKeyPath: typeof parsed.azureOpenaiApiKeyPath === "string" ? parsed.azureOpenaiApiKeyPath : undefined,
       ollamaModel: typeof parsed.ollamaModel === "string" ? parsed.ollamaModel : undefined,
       ollamaBaseUrl: typeof parsed.ollamaBaseUrl === "string" ? parsed.ollamaBaseUrl : undefined,
       localModelPath: typeof parsed.localModelPath === "string" ? parsed.localModelPath : undefined,
@@ -50,7 +59,7 @@ export async function readConfig(memexHome: string): Promise<MemexConfig> {
 }
 
 function isValidProvider(value: unknown): value is EmbeddingProviderType {
-  return value === "openai" || value === "local" || value === "ollama";
+  return value === "openai" || value === "azure" || value === "local" || value === "ollama";
 }
 
 /**

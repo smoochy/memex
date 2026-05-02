@@ -3654,6 +3654,9 @@ async function readConfig(memexHome) {
       openaiBaseUrl: typeof parsed.openaiBaseUrl === "string" ? parsed.openaiBaseUrl : void 0,
       embeddingModel: typeof parsed.embeddingModel === "string" ? parsed.embeddingModel : void 0,
       embeddingProvider: isValidProvider(parsed.embeddingProvider) ? parsed.embeddingProvider : void 0,
+      azureOpenaiEndpoint: typeof parsed.azureOpenaiEndpoint === "string" ? parsed.azureOpenaiEndpoint : void 0,
+      azureOpenaiApiKey: typeof parsed.azureOpenaiApiKey === "string" ? parsed.azureOpenaiApiKey : void 0,
+      azureOpenaiApiKeyPath: typeof parsed.azureOpenaiApiKeyPath === "string" ? parsed.azureOpenaiApiKeyPath : void 0,
       ollamaModel: typeof parsed.ollamaModel === "string" ? parsed.ollamaModel : void 0,
       ollamaBaseUrl: typeof parsed.ollamaBaseUrl === "string" ? parsed.ollamaBaseUrl : void 0,
       localModelPath: typeof parsed.localModelPath === "string" ? parsed.localModelPath : void 0
@@ -3665,7 +3668,7 @@ async function readConfig(memexHome) {
   }
 }
 function isValidProvider(value) {
-  return value === "openai" || value === "local" || value === "ollama";
+  return value === "openai" || value === "azure" || value === "local" || value === "ollama";
 }
 async function findMemexrcUp(startDir) {
   let dir = startDir;
@@ -7800,10 +7803,61 @@ var init_formatter = __esm({
 
 // src/lib/embeddings.ts
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile as readFile4, writeFile as writeFile3, mkdir as mkdir3 } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { join as join4, dirname as dirname5 } from "node:path";
+import { homedir as homedir2 } from "node:os";
+function embeddingsPath(basePath) {
+  if (!basePath || basePath === "/") return "/v1/embeddings";
+  if (basePath.endsWith("/v1")) return `${basePath}/embeddings`;
+  return `${basePath}/v1/embeddings`;
+}
+function resolveHomePath(path) {
+  if (path === "~") return homedir2();
+  if (path.startsWith("~/") || path.startsWith("~\\")) {
+    return join4(homedir2(), path.slice(2));
+  }
+  return path;
+}
+function readKeyFile(path) {
+  try {
+    const key = readFileSync(resolveHomePath(path), "utf-8").trim();
+    return key || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function normalizeAzureEndpoint(endpoint) {
+  const parsed = new URL(endpoint);
+  const path = parsed.pathname.replace(/\/$/, "");
+  if (!path || path === "/") {
+    parsed.pathname = "/openai/v1";
+  } else if (path.endsWith("/openai")) {
+    parsed.pathname = `${path}/v1`;
+  } else {
+    parsed.pathname = path;
+  }
+  parsed.search = "";
+  return parsed.toString();
+}
+function resolveAzureApiKey(apiKey, apiKeyPath) {
+  if (apiKey) return apiKey;
+  if (apiKeyPath) return readKeyFile(apiKeyPath);
+  return process.env.AZURE_OPENAI_API_KEY ?? process.env.MEMEX_AZURE_OPENAI_API_KEY ?? readKeyFile(
+    process.env.AZURE_OPENAI_API_KEY_FILE ?? process.env.MEMEX_AZURE_OPENAI_API_KEY_FILE ?? join4(homedir2(), ".azure_api_key")
+  );
+}
+function resolveAzureEndpoint(endpoint) {
+  const value = endpoint ?? process.env.AZURE_OPENAI_ENDPOINT ?? process.env.MEMEX_AZURE_OPENAI_ENDPOINT;
+  if (!value) {
+    throw new Error(
+      "Azure OpenAI endpoint required: set azureOpenaiEndpoint or AZURE_OPENAI_ENDPOINT"
+    );
+  }
+  return normalizeAzureEndpoint(value);
+}
 function normalizeVector(vec) {
   const sanitized = vec.map((v) => Number.isFinite(v) ? v : 0);
   const magnitude = Math.sqrt(sanitized.reduce((sum, v) => sum + v * v, 0));
@@ -7871,6 +7925,14 @@ async function createEmbeddingProvider(options2 = {}) {
   if (requestedType === "openai") {
     return new OpenAIEmbeddingProvider(options2.openaiApiKey, options2.openaiModel, options2.openaiBaseUrl);
   }
+  if (requestedType === "azure") {
+    return new AzureOpenAIEmbeddingProvider({
+      apiKey: options2.azureOpenaiApiKey,
+      apiKeyPath: options2.azureOpenaiApiKeyPath,
+      endpoint: options2.azureOpenaiEndpoint,
+      deployment: options2.azureOpenaiDeployment ?? options2.openaiModel
+    });
+  }
   if (requestedType === "local") {
     return new LocalEmbeddingProvider(options2.localModelPath);
   }
@@ -7884,11 +7946,22 @@ async function createEmbeddingProvider(options2 = {}) {
   if (apiKey) {
     return new OpenAIEmbeddingProvider(apiKey, options2.openaiModel, options2.openaiBaseUrl);
   }
+  const azureEndpoint = options2.azureOpenaiEndpoint ?? process.env.AZURE_OPENAI_ENDPOINT ?? process.env.MEMEX_AZURE_OPENAI_ENDPOINT;
+  if (azureEndpoint) {
+    const azureApiKey = resolveAzureApiKey(options2.azureOpenaiApiKey, options2.azureOpenaiApiKeyPath);
+    if (azureApiKey) {
+      return new AzureOpenAIEmbeddingProvider({
+        apiKey: azureApiKey,
+        endpoint: azureEndpoint,
+        deployment: options2.azureOpenaiDeployment ?? options2.openaiModel
+      });
+    }
+  }
   if (await isNodeLlamaCppAvailable()) {
     return new LocalEmbeddingProvider(options2.localModelPath);
   }
   throw new Error(
-    'No embedding provider available.\nOptions:\n  1. Set OPENAI_API_KEY for OpenAI embeddings\n  2. Install node-llama-cpp for local embeddings: npm install node-llama-cpp\n  3. Run Ollama locally and set MEMEX_EMBEDDING_PROVIDER=ollama\nConfigure via .memexrc { "embeddingProvider": "local" } or MEMEX_EMBEDDING_PROVIDER env var.'
+    'No embedding provider available.\nOptions:\n  1. Set OPENAI_API_KEY for OpenAI embeddings\n  2. Set AZURE_OPENAI_ENDPOINT plus AZURE_OPENAI_API_KEY or ~/.azure_api_key for Azure OpenAI embeddings\n  3. Install node-llama-cpp for local embeddings: npm install node-llama-cpp\n  4. Run Ollama locally and set MEMEX_EMBEDDING_PROVIDER=ollama\nConfigure via .memexrc { "embeddingProvider": "local" } or MEMEX_EMBEDDING_PROVIDER env var.'
   );
 }
 function contentHash(text) {
@@ -7938,23 +8011,26 @@ async function embedCards(store, provider, cache) {
     total: cards.length
   };
 }
-var DEFAULT_EMBEDDING_MODEL, OpenAIEmbeddingProvider, DEFAULT_LOCAL_MODEL, LocalEmbeddingProvider, OllamaEmbeddingProvider, EmbeddingCache;
+var DEFAULT_EMBEDDING_MODEL, DEFAULT_AZURE_EMBEDDING_DEPLOYMENT, OpenAIEmbeddingProvider, AzureOpenAIEmbeddingProvider, DEFAULT_LOCAL_MODEL, LocalEmbeddingProvider, OllamaEmbeddingProvider, EmbeddingCache;
 var init_embeddings = __esm({
   "src/lib/embeddings.ts"() {
     "use strict";
     DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
+    DEFAULT_AZURE_EMBEDDING_DEPLOYMENT = "text-embedding-3-large";
     OpenAIEmbeddingProvider = class {
       model;
       apiKey;
       baseHostname;
       basePath;
+      requestPath;
       basePort;
       useHttp;
-      constructor(apiKey, model, baseUrl) {
+      extraHeaders;
+      constructor(apiKey, model, baseUrl, options2 = {}) {
         const key = apiKey ?? process.env.OPENAI_API_KEY;
         if (!key) {
           throw new Error(
-            "OpenAI API key required: pass to constructor or set OPENAI_API_KEY"
+            `${options2.providerName ?? "OpenAI"} API key required: pass to constructor or set OPENAI_API_KEY`
           );
         }
         this.apiKey = key;
@@ -7963,8 +8039,10 @@ var init_embeddings = __esm({
         const parsed = new URL(url2);
         this.baseHostname = parsed.hostname;
         this.basePath = parsed.pathname.replace(/\/$/, "");
+        this.requestPath = embeddingsPath(this.basePath);
         this.basePort = parsed.port ? Number(parsed.port) : void 0;
         this.useHttp = parsed.protocol === "http:";
+        this.extraHeaders = options2.extraHeaders ?? {};
       }
       async embed(texts) {
         if (texts.length === 0) return [];
@@ -7986,11 +8064,12 @@ var init_embeddings = __esm({
           const reqFn = this.useHttp ? httpRequest : httpsRequest;
           const reqOptions = {
             hostname: this.baseHostname,
-            path: `${this.basePath}/v1/embeddings`,
+            path: this.requestPath,
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${this.apiKey}`,
+              ...this.extraHeaders,
               "Content-Length": Buffer.byteLength(body)
             }
           };
@@ -8022,6 +8101,21 @@ var init_embeddings = __esm({
           req.on("error", reject);
           req.write(body);
           req.end();
+        });
+      }
+    };
+    AzureOpenAIEmbeddingProvider = class extends OpenAIEmbeddingProvider {
+      constructor(options2 = {}) {
+        const apiKey = resolveAzureApiKey(options2.apiKey, options2.apiKeyPath);
+        if (!apiKey) {
+          throw new Error(
+            "Azure OpenAI API key required: set AZURE_OPENAI_API_KEY or create ~/.azure_api_key"
+          );
+        }
+        const deployment = options2.deployment ?? process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT ?? process.env.MEMEX_AZURE_OPENAI_DEPLOYMENT ?? DEFAULT_AZURE_EMBEDDING_DEPLOYMENT;
+        super(apiKey, deployment, resolveAzureEndpoint(options2.endpoint), {
+          extraHeaders: { "api-key": apiKey },
+          providerName: "Azure OpenAI"
         });
       }
     };
@@ -8379,6 +8473,11 @@ async function semanticSearch(query, allCards, shouldPrefix, options2) {
         type: options2.config?.embeddingProvider,
         openaiApiKey: options2.config?.openaiApiKey,
         openaiBaseUrl: options2.config?.openaiBaseUrl,
+        openaiModel: options2.config?.embeddingModel,
+        azureOpenaiApiKey: options2.config?.azureOpenaiApiKey,
+        azureOpenaiApiKeyPath: options2.config?.azureOpenaiApiKeyPath,
+        azureOpenaiEndpoint: options2.config?.azureOpenaiEndpoint,
+        azureOpenaiDeployment: options2.config?.embeddingModel,
         localModelPath: options2.config?.localModelPath,
         ollamaModel: options2.config?.ollamaModel,
         ollamaBaseUrl: options2.config?.ollamaBaseUrl
@@ -40244,7 +40343,7 @@ var server_exports = {};
 __export(server_exports, {
   createMemexServer: () => createMemexServer
 });
-import { existsSync as existsSync2, readFileSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { join as join12, dirname as dirname9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function readPackageJson(startDir) {
@@ -40252,7 +40351,7 @@ function readPackageJson(startDir) {
   for (let depth = 0; depth < 6; depth++) {
     const path = join12(dir, "package.json");
     if (existsSync2(path)) {
-      const pkg3 = JSON.parse(readFileSync(path, "utf-8"));
+      const pkg3 = JSON.parse(readFileSync2(path, "utf-8"));
       if (pkg3.name === "@touchskyer/memex") return pkg3;
     }
     const parent = dirname9(dir);
@@ -40506,7 +40605,7 @@ init_search();
 init_links();
 init_archive();
 import { join as join13, dirname as dirname10 } from "node:path";
-import { readFileSync as readFileSync2 } from "node:fs";
+import { readFileSync as readFileSync3 } from "node:fs";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
 // src/commands/serve.ts
@@ -40851,7 +40950,7 @@ Run: memex sync --init`;
 
 // src/commands/import.ts
 import { join as join8 } from "node:path";
-import { homedir as homedir2 } from "node:os";
+import { homedir as homedir3 } from "node:os";
 import { existsSync } from "node:fs";
 
 // src/importers/openclaw.ts
@@ -40987,7 +41086,7 @@ Usage: memex import <source> [--dry-run] [--dir <path>]`
       error: `Unknown importer: "${source}". Available: ${names}`
     };
   }
-  const sourceDir = opts.dir || join8(homedir2(), importer.defaultSourceDir);
+  const sourceDir = opts.dir || join8(homedir3(), importer.defaultSourceDir);
   if (!existsSync(sourceDir)) {
     return {
       success: false,
@@ -41307,7 +41406,7 @@ ${lines.join("\n")}`;
 init_organize();
 init_flomo();
 var __dirname3 = dirname10(fileURLToPath3(import.meta.url));
-var pkg2 = JSON.parse(readFileSync2(join13(__dirname3, "..", "package.json"), "utf-8"));
+var pkg2 = JSON.parse(readFileSync3(join13(__dirname3, "..", "package.json"), "utf-8"));
 async function getStore(opts) {
   const home = await resolveMemexHome();
   await warnIfEmptyCards(home);

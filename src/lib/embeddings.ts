@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { join, dirname } from "node:path";
+import { homedir } from "node:os";
 import type { CardStore } from "./store.js";
 
 /**
@@ -16,27 +18,58 @@ export interface EmbeddingProvider {
 
 // --- Provider type ---
 
-export type EmbeddingProviderType = "openai" | "local" | "ollama";
+export type EmbeddingProviderType = "openai" | "azure" | "local" | "ollama";
 
 /**
  * OpenAI embedding provider using text-embedding-3-small (1536 dims).
  * Uses native Node `https` module — no external dependencies.
  */
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
+const DEFAULT_AZURE_EMBEDDING_DEPLOYMENT = "text-embedding-3-large";
+
+interface OpenAIEmbeddingProviderOptions {
+  extraHeaders?: Record<string, string>;
+  providerName?: string;
+}
+
+function embeddingsPath(basePath: string): string {
+  if (!basePath || basePath === "/") return "/v1/embeddings";
+  if (basePath.endsWith("/v1")) return `${basePath}/embeddings`;
+  return `${basePath}/v1/embeddings`;
+}
+
+function resolveHomePath(path: string): string {
+  if (path === "~") return homedir();
+  if (path.startsWith("~/") || path.startsWith("~\\")) {
+    return join(homedir(), path.slice(2));
+  }
+  return path;
+}
+
+function readKeyFile(path: string): string | undefined {
+  try {
+    const key = readFileSync(resolveHomePath(path), "utf-8").trim();
+    return key || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export class OpenAIEmbeddingProvider implements EmbeddingProvider {
   readonly model: string;
   private apiKey: string;
   private baseHostname: string;
   private basePath: string;
+  private requestPath: string;
   private basePort: number | undefined;
   private useHttp: boolean;
+  private extraHeaders: Record<string, string>;
 
-  constructor(apiKey?: string, model?: string, baseUrl?: string) {
+  constructor(apiKey?: string, model?: string, baseUrl?: string, options: OpenAIEmbeddingProviderOptions = {}) {
     const key = apiKey ?? process.env.OPENAI_API_KEY;
     if (!key) {
       throw new Error(
-        "OpenAI API key required: pass to constructor or set OPENAI_API_KEY"
+        `${options.providerName ?? "OpenAI"} API key required: pass to constructor or set OPENAI_API_KEY`
       );
     }
     this.apiKey = key;
@@ -46,8 +79,10 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     const parsed = new URL(url);
     this.baseHostname = parsed.hostname;
     this.basePath = parsed.pathname.replace(/\/$/, "");
+    this.requestPath = embeddingsPath(this.basePath);
     this.basePort = parsed.port ? Number(parsed.port) : undefined;
     this.useHttp = parsed.protocol === "http:";
+    this.extraHeaders = options.extraHeaders ?? {};
   }
 
   async embed(texts: string[]): Promise<number[][]> {
@@ -76,11 +111,12 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       const reqFn = this.useHttp ? httpRequest : httpsRequest;
       const reqOptions: Record<string, unknown> = {
         hostname: this.baseHostname,
-        path: `${this.basePath}/v1/embeddings`,
+        path: this.requestPath,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey}`,
+          ...this.extraHeaders,
           "Content-Length": Buffer.byteLength(body),
         },
       };
@@ -117,6 +153,73 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
       req.on("error", reject);
       req.write(body);
       req.end();
+    });
+  }
+}
+
+function normalizeAzureEndpoint(endpoint: string): string {
+  const parsed = new URL(endpoint);
+  const path = parsed.pathname.replace(/\/$/, "");
+  if (!path || path === "/") {
+    parsed.pathname = "/openai/v1";
+  } else if (path.endsWith("/openai")) {
+    parsed.pathname = `${path}/v1`;
+  } else {
+    parsed.pathname = path;
+  }
+  parsed.search = "";
+  return parsed.toString();
+}
+
+function resolveAzureApiKey(apiKey?: string, apiKeyPath?: string): string | undefined {
+  if (apiKey) return apiKey;
+  if (apiKeyPath) return readKeyFile(apiKeyPath);
+
+  return process.env.AZURE_OPENAI_API_KEY
+    ?? process.env.MEMEX_AZURE_OPENAI_API_KEY
+    ?? readKeyFile(
+      process.env.AZURE_OPENAI_API_KEY_FILE
+        ?? process.env.MEMEX_AZURE_OPENAI_API_KEY_FILE
+        ?? join(homedir(), ".azure_api_key")
+    );
+}
+
+function resolveAzureEndpoint(endpoint?: string): string {
+  const value = endpoint
+    ?? process.env.AZURE_OPENAI_ENDPOINT
+    ?? process.env.MEMEX_AZURE_OPENAI_ENDPOINT;
+  if (!value) {
+    throw new Error(
+      "Azure OpenAI endpoint required: set azureOpenaiEndpoint or AZURE_OPENAI_ENDPOINT"
+    );
+  }
+  return normalizeAzureEndpoint(value);
+}
+
+export interface AzureOpenAIEmbeddingProviderOptions {
+  apiKey?: string;
+  apiKeyPath?: string;
+  endpoint?: string;
+  deployment?: string;
+}
+
+export class AzureOpenAIEmbeddingProvider extends OpenAIEmbeddingProvider {
+  constructor(options: AzureOpenAIEmbeddingProviderOptions = {}) {
+    const apiKey = resolveAzureApiKey(options.apiKey, options.apiKeyPath);
+    if (!apiKey) {
+      throw new Error(
+        "Azure OpenAI API key required: set AZURE_OPENAI_API_KEY or create ~/.azure_api_key"
+      );
+    }
+
+    const deployment = options.deployment
+      ?? process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+      ?? process.env.MEMEX_AZURE_OPENAI_DEPLOYMENT
+      ?? DEFAULT_AZURE_EMBEDDING_DEPLOYMENT;
+
+    super(apiKey, deployment, resolveAzureEndpoint(options.endpoint), {
+      extraHeaders: { "api-key": apiKey },
+      providerName: "Azure OpenAI",
     });
   }
 }
@@ -424,6 +527,10 @@ export interface CreateProviderOptions {
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   openaiModel?: string;
+  azureOpenaiApiKey?: string;
+  azureOpenaiApiKeyPath?: string;
+  azureOpenaiEndpoint?: string;
+  azureOpenaiDeployment?: string;
   localModelPath?: string;
   ollamaModel?: string;
   ollamaBaseUrl?: string;
@@ -434,8 +541,9 @@ export interface CreateProviderOptions {
  *
  * Resolution order when type is not specified:
  * 1. If OPENAI_API_KEY is available → OpenAI
- * 2. If node-llama-cpp is installed → Local
- * 3. Error with helpful message
+ * 2. If Azure OpenAI endpoint + key are available → Azure OpenAI
+ * 3. If node-llama-cpp is installed → Local
+ * 4. Error with helpful message
  */
 export async function createEmbeddingProvider(
   options: CreateProviderOptions = {}
@@ -448,6 +556,14 @@ export async function createEmbeddingProvider(
   if (requestedType === "openai") {
     return new OpenAIEmbeddingProvider(options.openaiApiKey, options.openaiModel, options.openaiBaseUrl);
   }
+  if (requestedType === "azure") {
+    return new AzureOpenAIEmbeddingProvider({
+      apiKey: options.azureOpenaiApiKey,
+      apiKeyPath: options.azureOpenaiApiKeyPath,
+      endpoint: options.azureOpenaiEndpoint,
+      deployment: options.azureOpenaiDeployment ?? options.openaiModel,
+    });
+  }
   if (requestedType === "local") {
     return new LocalEmbeddingProvider(options.localModelPath);
   }
@@ -458,10 +574,24 @@ export async function createEmbeddingProvider(
     });
   }
 
-  // Auto-detect: try OpenAI first, then local, then ollama
+  // Auto-detect: try OpenAI first, then Azure OpenAI, then local.
   const apiKey = options.openaiApiKey ?? process.env.OPENAI_API_KEY;
   if (apiKey) {
     return new OpenAIEmbeddingProvider(apiKey, options.openaiModel, options.openaiBaseUrl);
+  }
+
+  const azureEndpoint = options.azureOpenaiEndpoint
+    ?? process.env.AZURE_OPENAI_ENDPOINT
+    ?? process.env.MEMEX_AZURE_OPENAI_ENDPOINT;
+  if (azureEndpoint) {
+    const azureApiKey = resolveAzureApiKey(options.azureOpenaiApiKey, options.azureOpenaiApiKeyPath);
+    if (azureApiKey) {
+      return new AzureOpenAIEmbeddingProvider({
+        apiKey: azureApiKey,
+        endpoint: azureEndpoint,
+        deployment: options.azureOpenaiDeployment ?? options.openaiModel,
+      });
+    }
   }
 
   // Try local (node-llama-cpp)
@@ -474,8 +604,9 @@ export async function createEmbeddingProvider(
     "No embedding provider available.\n" +
       "Options:\n" +
       "  1. Set OPENAI_API_KEY for OpenAI embeddings\n" +
-      "  2. Install node-llama-cpp for local embeddings: npm install node-llama-cpp\n" +
-      "  3. Run Ollama locally and set MEMEX_EMBEDDING_PROVIDER=ollama\n" +
+      "  2. Set AZURE_OPENAI_ENDPOINT plus AZURE_OPENAI_API_KEY or ~/.azure_api_key for Azure OpenAI embeddings\n" +
+      "  3. Install node-llama-cpp for local embeddings: npm install node-llama-cpp\n" +
+      "  4. Run Ollama locally and set MEMEX_EMBEDDING_PROVIDER=ollama\n" +
       "Configure via .memexrc { \"embeddingProvider\": \"local\" } or MEMEX_EMBEDDING_PROVIDER env var."
   );
 }
