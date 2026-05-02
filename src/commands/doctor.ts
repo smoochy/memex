@@ -1,3 +1,5 @@
+import { readdir } from "node:fs/promises";
+import { join, basename } from "node:path";
 import { CardStore } from "../lib/store.js";
 import { parseFrontmatter, extractLinks } from "../lib/parser.js";
 
@@ -131,10 +133,37 @@ export async function checkOrphans(
   }
 }
 
+export async function scanExtraSlugs(home: string, extraDirs: string[]): Promise<Set<string>> {
+  const slugs = new Set<string>();
+
+  async function walkDir(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walkDir(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        slugs.add(basename(entry.name, ".md"));
+      }
+    }
+  }
+
+  for (const dirName of extraDirs) {
+    await walkDir(join(home, dirName));
+  }
+  return slugs;
+}
+
 export async function checkBrokenLinks(
   cardsDir: string,
   archiveDir: string,
-  verbose?: boolean
+  verbose?: boolean,
+  extraSlugs?: Set<string>
 ): Promise<CheckResult> {
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
@@ -147,7 +176,7 @@ export async function checkBrokenLinks(
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (!resolveLink(link)) {
+        if (!resolveLink(link) && !extraSlugs?.has(link)) {
           broken.push({ from: card.slug, to: link });
         }
       }
@@ -187,12 +216,19 @@ export async function doctorRunAll(
   cardsDir: string,
   archiveDir: string,
   verbose?: boolean,
-  json?: boolean
+  json?: boolean,
+  home?: string,
+  extraLinkDirs?: string[]
 ): Promise<DoctorResult> {
+  let extraSlugs: Set<string> | undefined;
+  if (home && extraLinkDirs && extraLinkDirs.length > 0) {
+    extraSlugs = await scanExtraSlugs(home, extraLinkDirs);
+  }
+
   const results = await Promise.all([
     checkCollisions(cardsDir, archiveDir),
     checkOrphans(cardsDir, archiveDir, verbose),
-    checkBrokenLinks(cardsDir, archiveDir, verbose),
+    checkBrokenLinks(cardsDir, archiveDir, verbose, extraSlugs),
   ]);
 
   const hasError = results.some((r) => r.status === "error");

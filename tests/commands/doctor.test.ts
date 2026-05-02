@@ -8,6 +8,7 @@ import {
   checkCollisions,
   checkOrphans,
   checkBrokenLinks,
+  scanExtraSlugs,
 } from "../../src/commands/doctor.js";
 
 describe("doctorCommand (legacy collision check)", () => {
@@ -332,5 +333,66 @@ describe("doctor nested slug link resolution", () => {
     const orphanSlugs = result.details || [];
     expect(orphanSlugs).toContain("hub");
     expect(orphanSlugs).not.toContain("projects/target");
+  });
+});
+
+describe("extraLinkDirs support", () => {
+  let tmpDir: string;
+  let cardsDir: string;
+  let archiveDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "memex-test-"));
+    cardsDir = join(tmpDir, "cards");
+    archiveDir = join(tmpDir, "archive");
+    await mkdir(cardsDir, { recursive: true });
+    await mkdir(archiveDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("scanExtraSlugs collects .md basenames from extra dirs", async () => {
+    const extDir = join(tmpDir, "refs");
+    await mkdir(join(extDir, "sub"), { recursive: true });
+    await writeFile(join(extDir, "alpha.md"), "content");
+    await writeFile(join(extDir, "sub", "beta.md"), "content");
+    await writeFile(join(extDir, "readme.txt"), "not md");
+
+    const slugs = await scanExtraSlugs(tmpDir, ["refs"]);
+    expect(slugs.has("alpha")).toBe(true);
+    expect(slugs.has("beta")).toBe(true);
+    expect(slugs.has("readme")).toBe(false);
+  });
+
+  it("checkBrokenLinks with extraSlugs: link in extraSlugs is not broken", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[external-note]]");
+
+    const extraSlugs = new Set(["external-note"]);
+    const result = await checkBrokenLinks(cardsDir, archiveDir, false, extraSlugs);
+    expect(result.status).toBe("ok");
+  });
+
+  it("checkBrokenLinks with extraSlugs: link NOT in extraSlugs is still broken", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[missing]]");
+
+    const extraSlugs = new Set(["other-note"]);
+    const result = await checkBrokenLinks(cardsDir, archiveDir, false, extraSlugs);
+    expect(result.status).toBe("warn");
+    expect(result.message).toContain("1 link(s)");
+  });
+
+  it("doctorRunAll with extraLinkDirs reduces false broken links", async () => {
+    const extDir = join(tmpDir, "refs");
+    await mkdir(extDir, { recursive: true });
+    await writeFile(join(extDir, "external.md"), "content");
+    await writeFile(join(cardsDir, "a.md"), "links to [[external]]");
+
+    const withoutExtra = await doctorRunAll(cardsDir, archiveDir);
+    expect(withoutExtra.output).toContain("⚠ Broken links");
+
+    const withExtra = await doctorRunAll(cardsDir, archiveDir, false, false, tmpDir, ["refs"]);
+    expect(withExtra.output).toContain("✓ Broken links");
   });
 });

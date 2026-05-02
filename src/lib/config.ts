@@ -17,6 +17,8 @@ export interface MemexConfig {
   ollamaBaseUrl?: string;
   /** Local GGUF model path or HuggingFace URI for node-llama-cpp. */
   localModelPath?: string;
+  /** Extra directories (relative to MEMEX_HOME) whose .md files count as valid link targets in doctor. */
+  extraLinkDirs?: string[];
 }
 
 /**
@@ -40,6 +42,7 @@ export async function readConfig(memexHome: string): Promise<MemexConfig> {
       ollamaModel: typeof parsed.ollamaModel === "string" ? parsed.ollamaModel : undefined,
       ollamaBaseUrl: typeof parsed.ollamaBaseUrl === "string" ? parsed.ollamaBaseUrl : undefined,
       localModelPath: typeof parsed.localModelPath === "string" ? parsed.localModelPath : undefined,
+      extraLinkDirs: Array.isArray(parsed.extraLinkDirs) ? parsed.extraLinkDirs : undefined,
     };
   } catch {
     // File doesn't exist or invalid JSON - return defaults
