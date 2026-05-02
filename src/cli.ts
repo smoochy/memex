@@ -258,8 +258,10 @@ program
   .option("--check-collisions", "Check for slug collisions in basename mode")
   .option("--verbose", "Show detailed output for warnings")
   .option("--json", "Output results as JSON for programmatic use")
-  .action(async (opts: { checkCollisions?: boolean; verbose?: boolean; json?: boolean }) => {
+  .option("--extra-dirs <dirs>", "Comma-separated extra directories for link resolution")
+  .action(async (opts: { checkCollisions?: boolean; verbose?: boolean; json?: boolean; extraDirs?: string }) => {
     const home = await resolveMemexHome();
+    const config = await readConfig(home);
     const cardsDir = join(home, "cards");
     const archiveDir = join(home, "archive");
 
@@ -268,7 +270,10 @@ program
       if (result.output) process.stdout.write(result.output + "\n");
       exit(result.exitCode);
     } else {
-      const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json);
+      const extraLinkDirs = opts.extraDirs
+        ? opts.extraDirs.split(",").map((s) => s.trim())
+        : config.extraLinkDirs;
+      const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json, home, extraLinkDirs);
       if (result.output) process.stdout.write(result.output + "\n");
       exit(result.exitCode);
     }
