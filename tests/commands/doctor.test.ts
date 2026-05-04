@@ -383,6 +383,22 @@ describe("extraLinkDirs support", () => {
     expect(result.message).toContain("1 link(s)");
   });
 
+  it("checkBrokenLinks resolves case-insensitive extraSlugs", async () => {
+    await writeFile(join(cardsDir, "a.md"), "links to [[OpenClaw]]");
+
+    const extraSlugs = new Set(["openclaw"]);
+    const result = await checkBrokenLinks(cardsDir, archiveDir, false, extraSlugs);
+    expect(result.status).toBe("ok");
+  });
+
+  it("checkBrokenLinks resolves case-insensitive card slugs", async () => {
+    await writeFile(join(cardsDir, "my-tool.md"), "content");
+    await writeFile(join(cardsDir, "a.md"), "links to [[My-Tool]]");
+
+    const result = await checkBrokenLinks(cardsDir, archiveDir);
+    expect(result.status).toBe("ok");
+  });
+
   it("doctorRunAll with extraLinkDirs reduces false broken links", async () => {
     const extDir = join(tmpDir, "refs");
     await mkdir(extDir, { recursive: true });

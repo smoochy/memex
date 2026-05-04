@@ -398,5 +398,42 @@ describe("CardStore with nestedSlugs", () => {
       expect(resolve("a/same")).toBe("a/same");
       expect(resolve("b/same")).toBe("b/same");
     });
+
+    it("resolves case-insensitive links", async () => {
+      await writeFile(join(cardsDir, "openclaw.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("openclaw")).toBe("openclaw");
+      expect(resolve("OpenClaw")).toBe("openclaw");
+      expect(resolve("OPENCLAW")).toBe("openclaw");
+    });
+
+    it("resolves case-insensitive basename links", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "projects", "my-tool.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("My-Tool")).toBe("projects/my-tool");
+      expect(resolve("MY-TOOL")).toBe("projects/my-tool");
+      expect(resolve("projects/My-Tool")).toBe("projects/my-tool");
+    });
+
+    it("returns null for ambiguous case-insensitive match", async () => {
+      await writeFile(join(cardsDir, "OpenClaw.md"), "content");
+      await writeFile(join(cardsDir, "openclaw.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      // Exact matches still work
+      expect(resolve("OpenClaw")).toBe("OpenClaw");
+      expect(resolve("openclaw")).toBe("openclaw");
+      // Ambiguous case-insensitive match returns null
+      expect(resolve("OPENCLAW")).toBeNull();
+    });
   });
 });

@@ -3579,12 +3579,35 @@ var init_store = __esm({
           }
           basenameIndex.get(base).push(card.slug);
         }
+        const lowerIndex = /* @__PURE__ */ new Map();
+        for (const slug of slugSet) {
+          const lower = slug.toLowerCase();
+          if (!lowerIndex.has(lower)) {
+            lowerIndex.set(lower, []);
+          }
+          lowerIndex.get(lower).push(slug);
+        }
+        const lowerBasenameIndex = /* @__PURE__ */ new Map();
+        for (const [base, slugs] of basenameIndex) {
+          const lower = base.toLowerCase();
+          if (!lowerBasenameIndex.has(lower)) {
+            lowerBasenameIndex.set(lower, []);
+          }
+          lowerBasenameIndex.get(lower).push(...slugs);
+        }
         return (link) => {
           const normalised = link.replace(/\\/g, "/");
           if (slugSet.has(normalised)) return normalised;
           if (!normalised.includes("/")) {
             const matches = basenameIndex.get(normalised);
             if (matches && matches.length === 1) return matches[0];
+          }
+          const lower = normalised.toLowerCase();
+          const ciMatches = lowerIndex.get(lower);
+          if (ciMatches && ciMatches.length === 1) return ciMatches[0];
+          if (!normalised.includes("/")) {
+            const ciBaseMatches = lowerBasenameIndex.get(lower);
+            if (ciBaseMatches && ciBaseMatches.length === 1) return ciBaseMatches[0];
           }
           return null;
         };
@@ -3659,7 +3682,9 @@ async function readConfig(memexHome) {
       azureOpenaiApiKeyPath: typeof parsed.azureOpenaiApiKeyPath === "string" ? parsed.azureOpenaiApiKeyPath : void 0,
       ollamaModel: typeof parsed.ollamaModel === "string" ? parsed.ollamaModel : void 0,
       ollamaBaseUrl: typeof parsed.ollamaBaseUrl === "string" ? parsed.ollamaBaseUrl : void 0,
-      localModelPath: typeof parsed.localModelPath === "string" ? parsed.localModelPath : void 0
+      localModelPath: typeof parsed.localModelPath === "string" ? parsed.localModelPath : void 0,
+      extraLinkDirs: Array.isArray(parsed.extraLinkDirs) ? parsed.extraLinkDirs : void 0,
+      experimental: parseExperimental(parsed.experimental)
     };
   } catch {
     return {
@@ -3669,6 +3694,17 @@ async function readConfig(memexHome) {
 }
 function isValidProvider(value) {
   return value === "openai" || value === "azure" || value === "local" || value === "ollama";
+}
+function parseExperimental(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return void 0;
+  }
+  const obj = value;
+  const agenticMemory = obj.agenticMemory === true ? true : void 0;
+  if (agenticMemory === void 0) {
+    return void 0;
+  }
+  return { agenticMemory };
 }
 async function findMemexrcUp(startDir) {
   let dir = startDir;
@@ -7223,11 +7259,15 @@ ${yamlLines.join("\n")}
 ${content}`;
 }
 function extractLinks(body) {
+  const stripped = body.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]+`/g, "");
   const re = /\[\[([^\]]+)\]\]/g;
   const links = /* @__PURE__ */ new Set();
   let match;
-  while ((match = re.exec(body)) !== null) {
-    links.add(match[1]);
+  while ((match = re.exec(stripped)) !== null) {
+    const target = match[1].split("|")[0].trim();
+    if (target) {
+      links.add(target);
+    }
   }
   return [...links];
 }
@@ -8809,7 +8849,7 @@ var init_organize = __esm({
 
 // src/commands/flomo.ts
 import { readFile as readFile8, writeFile as writeFile5 } from "node:fs/promises";
-import { join as join11, dirname as dirname8 } from "node:path";
+import { join as join12, dirname as dirname8 } from "node:path";
 function isValidFlomoWebhookUrl(url2) {
   try {
     const parsed = new URL(url2);
@@ -8819,7 +8859,7 @@ function isValidFlomoWebhookUrl(url2) {
   }
 }
 async function readFlomoConfig(memexHome) {
-  const configPath = join11(memexHome, ".memexrc");
+  const configPath = join12(memexHome, ".memexrc");
   try {
     const content = await readFile8(configPath, "utf-8");
     const parsed = JSON.parse(content);
@@ -8834,7 +8874,7 @@ async function writeFlomoConfig(memexHome, webhookUrl) {
   if (!isValidFlomoWebhookUrl(webhookUrl)) {
     return { success: false, error: "Invalid flomo webhook URL. Must be https://flomoapp.com/iwh/..." };
   }
-  const configPath = join11(memexHome, ".memexrc");
+  const configPath = join12(memexHome, ".memexrc");
   let existing = {};
   try {
     const content = await readFile8(configPath, "utf-8");
@@ -40344,12 +40384,12 @@ __export(server_exports, {
   createMemexServer: () => createMemexServer
 });
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join12, dirname as dirname9 } from "node:path";
+import { join as join13, dirname as dirname9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function readPackageJson(startDir) {
   let dir = startDir;
   for (let depth = 0; depth < 6; depth++) {
-    const path = join12(dir, "package.json");
+    const path = join13(dir, "package.json");
     if (existsSync2(path)) {
       const pkg3 = JSON.parse(readFileSync2(path, "utf-8"));
       if (pkg3.name === "@touchskyer/memex") return pkg3;
@@ -40604,7 +40644,7 @@ init_read();
 init_search();
 init_links();
 init_archive();
-import { join as join13, dirname as dirname10 } from "node:path";
+import { join as join14, dirname as dirname10 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -40909,14 +40949,22 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
   const config2 = await readSyncConfig(home);
   if (!config2.remote) {
     let hint = "";
-    try {
+    const execWithTimeout = async (command, args, timeoutMs = 5e3) => {
       const { execFile: execFileCb2 } = await import("node:child_process");
       const { promisify: promisify2 } = await import("node:util");
       const execFile3 = promisify2(execFileCb2);
-      await execFile3("gh", ["--version"]);
+      return Promise.race([
+        execFile3(command, args),
+        new Promise(
+          (_, reject) => setTimeout(() => reject(new Error(`Command timeout: ${command}`)), timeoutMs)
+        )
+      ]);
+    };
+    try {
+      await execWithTimeout("gh", ["--version"], 3e3);
       try {
-        const { stdout: user } = await execFile3("gh", ["api", "user", "-q", ".login"]);
-        const { stdout: repoUrl } = await execFile3("gh", [
+        const { stdout: user } = await execWithTimeout("gh", ["api", "user", "-q", ".login"], 5e3);
+        const { stdout: repoUrl } = await execWithTimeout("gh", [
           "repo",
           "view",
           `${user.trim()}/memex-cards`,
@@ -40924,7 +40972,7 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
           "url",
           "-q",
           ".url"
-        ]);
+        ], 5e3);
         hint = `
 
 Detected existing repo: ${repoUrl.trim()}
@@ -41111,6 +41159,8 @@ Usage: memex import <source> [--dry-run] [--dir <path>]`
 // src/commands/doctor.ts
 init_store();
 init_parser();
+import { readdir as readdir4 } from "node:fs/promises";
+import { join as join9, basename as basename3 } from "node:path";
 async function checkCollisions(cardsDir, archiveDir) {
   try {
     const basenameStore = new CardStore(cardsDir, archiveDir, false);
@@ -41202,18 +41252,42 @@ async function checkOrphans(cardsDir, archiveDir, verbose) {
     };
   }
 }
-async function checkBrokenLinks(cardsDir, archiveDir, verbose) {
+async function scanExtraSlugs(home, extraDirs) {
+  const slugs = /* @__PURE__ */ new Set();
+  async function walkDir(dir) {
+    let entries;
+    try {
+      entries = await readdir4(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join9(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walkDir(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        slugs.add(basename3(entry.name, ".md"));
+      }
+    }
+  }
+  for (const dirName of extraDirs) {
+    await walkDir(join9(home, dirName));
+  }
+  return slugs;
+}
+async function checkBrokenLinks(cardsDir, archiveDir, verbose, extraSlugs) {
   try {
     const store = new CardStore(cardsDir, archiveDir, true);
     const cards = await store.scanAll();
     const resolveLink = store.buildLinkResolver(cards);
     const broken = [];
+    const extraSlugsLower = extraSlugs ? new Set([...extraSlugs].map((s) => s.toLowerCase())) : void 0;
     for (const card of cards) {
       const raw = await store.readCard(card.slug);
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (!resolveLink(link)) {
+        if (!resolveLink(link) && !extraSlugs?.has(link) && !extraSlugsLower?.has(link.toLowerCase())) {
           broken.push({ from: card.slug, to: link });
         }
       }
@@ -41244,11 +41318,15 @@ function formatCheckResult(r) {
   const icon = r.status === "ok" ? "\u2713" : r.status === "warn" ? "\u26A0" : "\u2717";
   return `${icon} ${r.name}: ${r.message}`;
 }
-async function doctorRunAll(cardsDir, archiveDir, verbose, json2) {
+async function doctorRunAll(cardsDir, archiveDir, verbose, json2, home, extraLinkDirs) {
+  let extraSlugs;
+  if (home && extraLinkDirs && extraLinkDirs.length > 0) {
+    extraSlugs = await scanExtraSlugs(home, extraLinkDirs);
+  }
   const results = await Promise.all([
     checkCollisions(cardsDir, archiveDir),
     checkOrphans(cardsDir, archiveDir, verbose),
-    checkBrokenLinks(cardsDir, archiveDir, verbose)
+    checkBrokenLinks(cardsDir, archiveDir, verbose, extraSlugs)
   ]);
   const hasError = results.some((r) => r.status === "error");
   if (json2) {
@@ -41330,7 +41408,7 @@ async function doctorCommand(cardsDir, archiveDir, json2) {
 
 // src/commands/migrate.ts
 import { readFile as readFile7, writeFile as writeFile4 } from "node:fs/promises";
-import { join as join9 } from "node:path";
+import { join as join10 } from "node:path";
 async function migrateCommand(memexHome, cardsDir, archiveDir) {
   try {
     const doctorResult = await doctorCommand(cardsDir, archiveDir);
@@ -41342,7 +41420,7 @@ async function migrateCommand(memexHome, cardsDir, archiveDir) {
 Resolve collisions before enabling nestedSlugs.`
       };
     }
-    const configPath = join9(memexHome, ".memexrc");
+    const configPath = join10(memexHome, ".memexrc");
     let config2 = {};
     try {
       const content = await readFile7(configPath, "utf-8");
@@ -41367,15 +41445,15 @@ ${doctorResult.output}`
 // src/commands/backlinks.ts
 init_store();
 init_parser();
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 async function backlinksCommand(store, slug, options2 = {}) {
   const storesToSearch = [
     { store, dirPrefix: "cards" }
   ];
   if (options2.all && options2.config?.searchDirs && options2.config.searchDirs.length > 0 && options2.memexHome) {
-    const archiveDir = join10(options2.memexHome, "archive");
+    const archiveDir = join11(options2.memexHome, "archive");
     for (const searchDir of options2.config.searchDirs) {
-      const fullPath = join10(options2.memexHome, searchDir);
+      const fullPath = join11(options2.memexHome, searchDir);
       const additionalStore = new CardStore(fullPath, archiveDir, store["nestedSlugs"]);
       const dirName = searchDir.split("/").pop() || searchDir;
       storesToSearch.push({ store: additionalStore, dirPrefix: dirName });
@@ -41406,13 +41484,13 @@ ${lines.join("\n")}`;
 init_organize();
 init_flomo();
 var __dirname3 = dirname10(fileURLToPath3(import.meta.url));
-var pkg2 = JSON.parse(readFileSync3(join13(__dirname3, "..", "package.json"), "utf-8"));
+var pkg2 = JSON.parse(readFileSync3(join14(__dirname3, "..", "package.json"), "utf-8"));
 async function getStore(opts) {
   const home = await resolveMemexHome();
   await warnIfEmptyCards(home);
   const config2 = await readConfig(home);
   const nestedSlugs = opts?.nested ?? config2.nestedSlugs;
-  return new CardStore(join13(home, "cards"), join13(home, "archive"), nestedSlugs);
+  return new CardStore(join14(home, "cards"), join14(home, "archive"), nestedSlugs);
 }
 function exit(code) {
   if (process.stdout.writableLength === 0) {
@@ -41551,24 +41629,26 @@ program2.command("import [source]").description("Import memories from other tool
     exit(1);
   }
 });
-program2.command("doctor").description("Check memex health and configuration").option("--check-collisions", "Check for slug collisions in basename mode").option("--verbose", "Show detailed output for warnings").option("--json", "Output results as JSON for programmatic use").action(async (opts) => {
+program2.command("doctor").description("Check memex health and configuration").option("--check-collisions", "Check for slug collisions in basename mode").option("--verbose", "Show detailed output for warnings").option("--json", "Output results as JSON for programmatic use").option("--extra-dirs <dirs>", "Comma-separated extra directories for link resolution").action(async (opts) => {
   const home = await resolveMemexHome();
-  const cardsDir = join13(home, "cards");
-  const archiveDir = join13(home, "archive");
+  const config2 = await readConfig(home);
+  const cardsDir = join14(home, "cards");
+  const archiveDir = join14(home, "archive");
   if (opts.checkCollisions) {
     const result = await doctorCommand(cardsDir, archiveDir, opts.json);
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   } else {
-    const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json);
+    const extraLinkDirs = opts.extraDirs ? opts.extraDirs.split(",").map((s) => s.trim()) : config2.extraLinkDirs;
+    const result = await doctorRunAll(cardsDir, archiveDir, opts.verbose, opts.json, home, extraLinkDirs);
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   }
 });
 program2.command("migrate").description("Migrate memex configuration").option("--enable-nested", "Enable nestedSlugs in config").action(async (opts) => {
   const home = await resolveMemexHome();
-  const cardsDir = join13(home, "cards");
-  const archiveDir = join13(home, "archive");
+  const cardsDir = join14(home, "cards");
+  const archiveDir = join14(home, "archive");
   if (opts.enableNested) {
     const result = await migrateCommand(home, cardsDir, archiveDir);
     if (result.output) process.stdout.write(result.output + "\n");
