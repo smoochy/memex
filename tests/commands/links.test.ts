@@ -123,4 +123,46 @@ describe("linksCommand", () => {
     expect(data.count).toBe(1);
     expect(data.totalCards).toBe(4);
   });
+
+  it("counts inbound links from extraLinkDirs", async () => {
+    // c has 0 inbound from cards (only a links to b and c, but we want to test extra dirs)
+    // Create an extra dir with a file that links to 'c'
+    const projectsDir = join(tmpDir, "projects");
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(join(projectsDir, "proj.md"), "---\ntitle: Project\n---\nReferences [[c]] concept.");
+
+    // Without extraLinkDirs, c has 1 inbound (from a)
+    // With extraLinkDirs, c should have 2 inbound (from a + projects/proj)
+    const result = await linksCommand(store, undefined, {
+      json: true,
+      home: tmpDir,
+      extraLinkDirs: ["projects"],
+    });
+    const data = JSON.parse(result.output);
+    const c = data.find((d: any) => d.slug === "c");
+    expect(c).toBeDefined();
+    expect(c.inbound).toBe(2); // a + projects/proj
+  });
+
+  it("rescues orphan via extraLinkDirs inbound link", async () => {
+    await writeFile(join(tmpDir, "cards", "orphan.md"), "---\ntitle: Orphan\n---\nNo one links here from cards.");
+    const projectsDir = join(tmpDir, "notes");
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(join(projectsDir, "note.md"), "---\ntitle: Note\n---\nSee [[orphan]] for details.");
+
+    // Without extraLinkDirs: orphan is orphan
+    const before = await linksCommand(store, undefined, { json: true, filter: "orphan" });
+    const beforeData = JSON.parse(before.output);
+    expect(beforeData.some((d: any) => d.slug === "orphan")).toBe(true);
+
+    // With extraLinkDirs: orphan should no longer be orphan
+    const after = await linksCommand(store, undefined, {
+      json: true,
+      filter: "orphan",
+      home: tmpDir,
+      extraLinkDirs: ["notes"],
+    });
+    const afterData = JSON.parse(after.output);
+    expect(afterData.some((d: any) => d.slug === "orphan")).toBe(false);
+  });
 });

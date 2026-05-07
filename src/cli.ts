@@ -111,8 +111,16 @@ program
   .option("--json", "Output results as JSON for programmatic use")
   .action(async (slug?: string, cmdOpts?: { filter?: string; stats?: boolean; json?: boolean }) => {
     const store = await getStore();
+    const home = await resolveMemexHome();
+    const config = await readConfig(home);
     const filter = cmdOpts?.filter as "orphan" | "hub" | undefined;
-    const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats, json: cmdOpts?.json });
+    const result = await linksCommand(store, slug, {
+      filter,
+      stats: cmdOpts?.stats,
+      json: cmdOpts?.json,
+      home,
+      extraLinkDirs: config.extraLinkDirs,
+    });
     if (result.output) process.stdout.write(result.output + "\n");
     exit(result.exitCode);
   });
