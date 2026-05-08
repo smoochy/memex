@@ -1,7 +1,7 @@
-import { readdir } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { CardStore } from "../lib/store.js";
 import { parseFrontmatter, extractLinks } from "../lib/parser.js";
+import { scanMarkdownFiles } from "../lib/scan.js";
 
 export interface DoctorResult {
   exitCode: number;
@@ -135,26 +135,11 @@ export async function checkOrphans(
 
 export async function scanExtraSlugs(home: string, extraDirs: string[]): Promise<Set<string>> {
   const slugs = new Set<string>();
-
-  async function walkDir(dir: string): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walkDir(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        slugs.add(basename(entry.name, ".md"));
-      }
-    }
-  }
-
   for (const dirName of extraDirs) {
-    await walkDir(join(home, dirName));
+    const files = await scanMarkdownFiles(join(home, dirName));
+    for (const file of files) {
+      slugs.add(file.slug);
+    }
   }
   return slugs;
 }

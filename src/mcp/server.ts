@@ -107,7 +107,12 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
       slug: z.string().optional().describe("Card slug. Omit for global stats."),
     }),
   }, async ({ slug }) => {
-    const result = await linksCommand(store, slug);
+    let opts;
+    if (home) {
+      const config = await readConfig(home);
+      opts = { home, extraLinkDirs: config.extraLinkDirs };
+    }
+    const result = await linksCommand(store, slug, opts);
     return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
   });
 

@@ -1,9 +1,9 @@
-import { readdir } from "node:fs/promises";
-import { join, basename } from "node:path";
+import { join, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { CardStore } from "../lib/store.js";
 import { parseFrontmatter, extractLinks } from "../lib/parser.js";
 import { formatLinkStats, formatCardLinks, LinkStatsItem } from "../lib/formatter.js";
+import { scanMarkdownFiles } from "../lib/scan.js";
 
 const HUB_THRESHOLD = 10;
 
@@ -49,7 +49,9 @@ export async function linksCommand(store: CardStore, slug: string | undefined, o
   // Scan extraLinkDirs for inbound links to cards
   if (opts?.home && opts?.extraLinkDirs && opts.extraLinkDirs.length > 0) {
     for (const dirName of opts.extraLinkDirs) {
-      const extraFiles = await scanMarkdownFiles(join(opts.home, dirName));
+      const extraDir = resolve(join(opts.home, dirName));
+      if (extraDir === resolve(store.cardsDir)) continue;
+      const extraFiles = await scanMarkdownFiles(extraDir);
       for (const file of extraFiles) {
         const raw = await readFile(file.path, "utf-8");
         const { content } = parseFrontmatter(raw);
@@ -136,27 +138,4 @@ function formatLinkSummary(stats: LinkStatsItem[], totalCards: number, filter?: 
   lines.push(`Avg outbound links: ${avgOut}`);
   lines.push(`Avg inbound links: ${avgIn}`);
   return lines.join("\n");
-}
-
-/** Recursively scan a directory for .md files, returning slug + path */
-async function scanMarkdownFiles(dir: string): Promise<{ slug: string; path: string }[]> {
-  const results: { slug: string; path: string }[] = [];
-  async function walk(d: string): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const fullPath = join(d, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        results.push({ slug: basename(entry.name, ".md"), path: fullPath });
-      }
-    }
-  }
-  await walk(dir);
-  return results;
 }
