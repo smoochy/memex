@@ -170,13 +170,21 @@ export async function checkBrokenLinks(
     const cards = await store.scanAll();
     const resolveLink = store.buildLinkResolver(cards);
     const broken: { from: string; to: string }[] = [];
+    // Build case-insensitive extra slugs set
+    const extraSlugsLower = extraSlugs
+      ? new Set([...extraSlugs].map((s) => s.toLowerCase()))
+      : undefined;
 
     for (const card of cards) {
       const raw = await store.readCard(card.slug);
       const { content } = parseFrontmatter(raw);
       const links = extractLinks(content);
       for (const link of links) {
-        if (!resolveLink(link) && !extraSlugs?.has(link)) {
+        if (
+          !resolveLink(link) &&
+          !extraSlugs?.has(link) &&
+          !extraSlugsLower?.has(link.toLowerCase())
+        ) {
           broken.push({ from: card.slug, to: link });
         }
       }

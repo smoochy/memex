@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  mkdir,
+  writeFile,
+  readFile,
+  access,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CardStore, validateSlug } from "../../src/lib/store.js";
@@ -397,6 +404,58 @@ describe("CardStore with nestedSlugs", () => {
       expect(resolve("same")).toBeNull();
       expect(resolve("a/same")).toBe("a/same");
       expect(resolve("b/same")).toBe("b/same");
+    });
+
+    it("resolves case-insensitive links", async () => {
+      await writeFile(join(cardsDir, "openclaw.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("openclaw")).toBe("openclaw");
+      expect(resolve("OpenClaw")).toBe("openclaw");
+      expect(resolve("OPENCLAW")).toBe("openclaw");
+    });
+
+    it("resolves case-insensitive basename links", async () => {
+      await mkdir(join(cardsDir, "projects"), { recursive: true });
+      await writeFile(join(cardsDir, "projects", "my-tool.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      expect(resolve("My-Tool")).toBe("projects/my-tool");
+      expect(resolve("MY-TOOL")).toBe("projects/my-tool");
+      expect(resolve("projects/My-Tool")).toBe("projects/my-tool");
+    });
+
+    it("returns null for ambiguous case-insensitive match", async () => {
+      // This test requires a case-sensitive filesystem (two files differing only
+      // in case must coexist). macOS/Windows are case-insensitive by default.
+      await writeFile(join(cardsDir, "OpenClaw.md"), "content");
+      let isCaseSensitive = true;
+      try {
+        await access(join(cardsDir, "openclaw.md"));
+        // File exists without being explicitly created → FS is case-insensitive
+        isCaseSensitive = false;
+      } catch {
+        // File not found → FS is case-sensitive, we can create the second file
+        isCaseSensitive = true;
+      }
+      if (!isCaseSensitive) {
+        // On case-insensitive FS, ambiguous slugs can't exist — skip
+        return;
+      }
+      await writeFile(join(cardsDir, "openclaw.md"), "content");
+
+      const cards = await nestedStore.scanAll();
+      const resolve = nestedStore.buildLinkResolver(cards);
+
+      // Exact matches still work
+      expect(resolve("OpenClaw")).toBe("OpenClaw");
+      expect(resolve("openclaw")).toBe("openclaw");
+      // Ambiguous case-insensitive match returns null
+      expect(resolve("OPENCLAW")).toBeNull();
     });
   });
 });

@@ -155,6 +155,24 @@ export class CardStore {
       }
       basenameIndex.get(base)!.push(card.slug);
     }
+    // Build case-insensitive index (lowercase → original slug)
+    const lowerIndex = new Map<string, string[]>();
+    for (const slug of slugSet) {
+      const lower = slug.toLowerCase();
+      if (!lowerIndex.has(lower)) {
+        lowerIndex.set(lower, []);
+      }
+      lowerIndex.get(lower)!.push(slug);
+    }
+    // Case-insensitive basename index
+    const lowerBasenameIndex = new Map<string, string[]>();
+    for (const [base, slugs] of basenameIndex) {
+      const lower = base.toLowerCase();
+      if (!lowerBasenameIndex.has(lower)) {
+        lowerBasenameIndex.set(lower, []);
+      }
+      lowerBasenameIndex.get(lower)!.push(...slugs);
+    }
 
     return (link: string): string | null => {
       const normalised = link.replace(/\\/g, "/");
@@ -164,6 +182,15 @@ export class CardStore {
       if (!normalised.includes("/")) {
         const matches = basenameIndex.get(normalised);
         if (matches && matches.length === 1) return matches[0];
+      }
+      // Case-insensitive fallback
+      const lower = normalised.toLowerCase();
+      const ciMatches = lowerIndex.get(lower);
+      if (ciMatches && ciMatches.length === 1) return ciMatches[0];
+      // Case-insensitive basename fallback
+      if (!normalised.includes("/")) {
+        const ciBaseMatches = lowerBasenameIndex.get(lower);
+        if (ciBaseMatches && ciBaseMatches.length === 1) return ciBaseMatches[0];
       }
       return null;
     };
