@@ -55,16 +55,19 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
     if (home) await autoFetch(home);
   };
 
+  const MCP_MAX_RESULTS = 50;
+
   server.registerTool("memex_search", {
     description: "Low-level search. Prefer memex_recall for task-start workflows.",
     inputSchema: z.object({
       query: z.string().optional().describe("Search keyword. Omit to list all cards."),
-      limit: z.number().optional().describe("Max results (default 10)"),
+      limit: z.number().optional().describe(`Max results (default 10, max ${MCP_MAX_RESULTS})`),
       semantic: z.boolean().optional().describe("Use embedding-based semantic search"),
     }),
   }, async ({ query, limit, semantic }) => {
     const config = home ? await readConfig(home) : undefined;
-    const result = await searchCommand(store, query, { limit, semantic, config, memexHome: home });
+    const clampedLimit = Math.min(limit ?? 10, MCP_MAX_RESULTS);
+    const result = await searchCommand(store, query, { limit: clampedLimit, semantic, config, memexHome: home });
     return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
   });
 
