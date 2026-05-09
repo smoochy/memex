@@ -8614,6 +8614,9 @@ var init_search = __esm({
 });
 
 // src/commands/links.ts
+import { readdir as readdir3 } from "node:fs/promises";
+import { join as join6, basename as basename2 } from "node:path";
+import { readFile as readFile5 } from "node:fs/promises";
 async function linksCommand(store, slug, opts) {
   const cards = await store.scanAll();
   if (cards.length === 0) return { output: "", exitCode: 0 };
@@ -8633,6 +8636,23 @@ async function linksCommand(store, slug, opts) {
       const existing = inboundMap.get(resolved) || [];
       existing.push(card.slug);
       inboundMap.set(resolved, existing);
+    }
+  }
+  if (opts?.home && opts?.extraLinkDirs && opts.extraLinkDirs.length > 0) {
+    for (const dirName of opts.extraLinkDirs) {
+      const extraFiles = await scanMarkdownFiles(join6(opts.home, dirName));
+      for (const file2 of extraFiles) {
+        const raw = await readFile5(file2.path, "utf-8");
+        const { content } = parseFrontmatter(raw);
+        const links = extractLinks(content);
+        for (const link of links) {
+          const resolved = resolveLink(link) ?? link;
+          if (inboundMap.has(resolved)) {
+            const existing = inboundMap.get(resolved);
+            existing.push(`~${file2.slug}`);
+          }
+        }
+      }
     }
   }
   if (slug) {
@@ -8699,6 +8719,27 @@ function formatLinkSummary(stats, totalCards, filter) {
   lines.push(`Avg outbound links: ${avgOut}`);
   lines.push(`Avg inbound links: ${avgIn}`);
   return lines.join("\n");
+}
+async function scanMarkdownFiles(dir) {
+  const results = [];
+  async function walk(d) {
+    let entries;
+    try {
+      entries = await readdir3(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join6(d, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        results.push({ slug: basename2(entry.name, ".md"), path: fullPath });
+      }
+    }
+  }
+  await walk(dir);
+  return results;
 }
 var HUB_THRESHOLD2;
 var init_links = __esm({
@@ -8848,8 +8889,8 @@ var init_organize = __esm({
 });
 
 // src/commands/flomo.ts
-import { readFile as readFile8, writeFile as writeFile5 } from "node:fs/promises";
-import { join as join12, dirname as dirname8 } from "node:path";
+import { readFile as readFile9, writeFile as writeFile5 } from "node:fs/promises";
+import { join as join13, dirname as dirname8 } from "node:path";
 function isValidFlomoWebhookUrl(url2) {
   try {
     const parsed = new URL(url2);
@@ -8859,9 +8900,9 @@ function isValidFlomoWebhookUrl(url2) {
   }
 }
 async function readFlomoConfig(memexHome) {
-  const configPath = join12(memexHome, ".memexrc");
+  const configPath = join13(memexHome, ".memexrc");
   try {
-    const content = await readFile8(configPath, "utf-8");
+    const content = await readFile9(configPath, "utf-8");
     const parsed = JSON.parse(content);
     const url2 = typeof parsed.flomoWebhookUrl === "string" ? parsed.flomoWebhookUrl : void 0;
     if (url2 && !isValidFlomoWebhookUrl(url2)) return {};
@@ -8874,10 +8915,10 @@ async function writeFlomoConfig(memexHome, webhookUrl) {
   if (!isValidFlomoWebhookUrl(webhookUrl)) {
     return { success: false, error: "Invalid flomo webhook URL. Must be https://flomoapp.com/iwh/..." };
   }
-  const configPath = join12(memexHome, ".memexrc");
+  const configPath = join13(memexHome, ".memexrc");
   let existing = {};
   try {
-    const content = await readFile8(configPath, "utf-8");
+    const content = await readFile9(configPath, "utf-8");
     existing = JSON.parse(content);
   } catch {
   }
@@ -9018,7 +9059,7 @@ function generateSlug(text, index) {
 async function flomoImportCommand(store, filePath, opts) {
   let html;
   try {
-    html = await readFile8(filePath, "utf-8");
+    html = await readFile9(filePath, "utf-8");
   } catch {
     return { output: `Error: Cannot read file: ${filePath}`, exitCode: 1 };
   }
@@ -40320,7 +40361,7 @@ function registerOperations(server, store, hooks, home, getClientName) {
       file_path: external_exports3.string().describe("Path to flomo HTML export file (.html or .htm)")
     })
   }, async ({ file_path }) => {
-    const { readFile: readFile9 } = await import("node:fs/promises");
+    const { readFile: readFile10 } = await import("node:fs/promises");
     const { resolve: resolve2, extname } = await import("node:path");
     const ext = extname(file_path).toLowerCase();
     if (ext !== ".html" && ext !== ".htm") {
@@ -40341,7 +40382,7 @@ function registerOperations(server, store, hooks, home, getClientName) {
     }
     let html;
     try {
-      html = await readFile9(resolved, "utf-8");
+      html = await readFile10(resolved, "utf-8");
     } catch {
       return { content: [{ type: "text", text: `Error: Cannot read file: ${file_path}` }], isError: true };
     }
@@ -40384,12 +40425,12 @@ __export(server_exports, {
   createMemexServer: () => createMemexServer
 });
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join13, dirname as dirname9 } from "node:path";
+import { join as join14, dirname as dirname9 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 function readPackageJson(startDir) {
   let dir = startDir;
   for (let depth = 0; depth < 6; depth++) {
-    const path = join13(dir, "package.json");
+    const path = join14(dir, "package.json");
     if (existsSync2(path)) {
       const pkg3 = JSON.parse(readFileSync2(path, "utf-8"));
       if (pkg3.name === "@touchskyer/memex") return pkg3;
@@ -40644,7 +40685,7 @@ init_read();
 init_search();
 init_links();
 init_archive();
-import { join as join14, dirname as dirname10 } from "node:path";
+import { join as join15, dirname as dirname10 } from "node:path";
 import { readFileSync as readFileSync3 } from "node:fs";
 import { fileURLToPath as fileURLToPath3 } from "node:url";
 
@@ -40654,8 +40695,8 @@ init_parser();
 init_sync();
 init_config();
 import { createServer } from "node:http";
-import { join as join6 } from "node:path";
-import { readFile as readFile5, access as access2 } from "node:fs/promises";
+import { join as join7 } from "node:path";
+import { readFile as readFile6, access as access2 } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname as dirname7 } from "node:path";
 import { execFile as execFile2 } from "node:child_process";
@@ -40683,20 +40724,20 @@ async function resolveAsset(name, ...candidates) {
 }
 var SERVE_UI_HTML = resolveAsset(
   "serve-ui.html",
-  join6(__dirname, "serve-ui.html"),
-  join6(__dirname, "commands", "serve-ui.html")
+  join7(__dirname, "serve-ui.html"),
+  join7(__dirname, "commands", "serve-ui.html")
 );
 var SHARE_CARD_JS = resolveAsset(
   "share-card.js",
-  join6(__dirname, "..", "share-card", "share-card.js"),
-  join6(__dirname, "share-card", "share-card.js")
+  join7(__dirname, "..", "share-card", "share-card.js"),
+  join7(__dirname, "share-card", "share-card.js")
 );
 var MEMRA_URL = "https://memra.vercel.app";
 var cachedHTML = null;
 var cachedHTMLWithBanner = null;
 async function getHTML(withBanner) {
   if (!cachedHTML) {
-    cachedHTML = await readFile5(await SERVE_UI_HTML, "utf-8");
+    cachedHTML = await readFile6(await SERVE_UI_HTML, "utf-8");
     cachedHTMLWithBanner = injectBanner(cachedHTML);
   }
   return withBanner ? cachedHTMLWithBanner : cachedHTML;
@@ -40734,7 +40775,7 @@ async function serveCommand(port, opts = {}) {
     return null;
   }
   const showBanner = !syncConfig.remote;
-  const store = new CardStore(join6(home, "cards"), join6(home, "archive"));
+  const store = new CardStore(join7(home, "cards"), join7(home, "archive"));
   const server = createServer(async (req, res) => {
     try {
       const url2 = new URL(req.url || "/", `http://localhost:${port}`);
@@ -40832,7 +40873,7 @@ async function serveCommand(port, opts = {}) {
         return;
       }
       if (url2.pathname === "/share-card.js") {
-        const js = await readFile5(await SHARE_CARD_JS, "utf-8");
+        const js = await readFile6(await SHARE_CARD_JS, "utf-8");
         const stripped = js.replace(/^export /gm, "");
         const wrapped = `(function(){
 ${stripped}
@@ -40997,13 +41038,13 @@ Run: memex sync --init`;
 }
 
 // src/commands/import.ts
-import { join as join8 } from "node:path";
+import { join as join9 } from "node:path";
 import { homedir as homedir3 } from "node:os";
 import { existsSync } from "node:fs";
 
 // src/importers/openclaw.ts
-import { readdir as readdir3, readFile as readFile6 } from "node:fs/promises";
-import { join as join7, basename as basename2 } from "node:path";
+import { readdir as readdir4, readFile as readFile7 } from "node:fs/promises";
+import { join as join8, basename as basename3 } from "node:path";
 function slugify(text) {
   return text.toLowerCase().replace(/[^\w\u4e00-\u9fff\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
 }
@@ -41063,21 +41104,21 @@ function generateSlugs(sections, date5, fallbackName) {
 var OpenClawImporter = class {
   name = "openclaw";
   description = "Import daily memory files from OpenClaw (~/.openclaw/workspace/memory/)";
-  defaultSourceDir = join7(".openclaw", "workspace", "memory");
+  defaultSourceDir = join8(".openclaw", "workspace", "memory");
   async run(opts) {
     const { store, sourceDir, dryRun = false, onLog = console.log } = opts;
-    const files = (await readdir3(sourceDir)).filter((f) => f.endsWith(".md")).sort();
+    const files = (await readdir4(sourceDir)).filter((f) => f.endsWith(".md")).sort();
     let created = 0;
     let skipped = 0;
     for (const file2 of files) {
-      const content = await readFile6(join7(sourceDir, file2), "utf-8");
+      const content = await readFile7(join8(sourceDir, file2), "utf-8");
       const date5 = extractDateFromFilename(file2);
       const sections = extractH2Sections(content);
       if (sections.length === 0) {
         onLog(`  skip ${file2} (no H2 sections)`);
         continue;
       }
-      const slugs = generateSlugs(sections, date5, basename2(file2, ".md"));
+      const slugs = generateSlugs(sections, date5, basename3(file2, ".md"));
       for (let i = 0; i < sections.length; i++) {
         const slug = slugs[i];
         const existing = await store.resolve(slug);
@@ -41134,7 +41175,7 @@ Usage: memex import <source> [--dry-run] [--dir <path>]`
       error: `Unknown importer: "${source}". Available: ${names}`
     };
   }
-  const sourceDir = opts.dir || join8(homedir3(), importer.defaultSourceDir);
+  const sourceDir = opts.dir || join9(homedir3(), importer.defaultSourceDir);
   if (!existsSync(sourceDir)) {
     return {
       success: false,
@@ -41159,8 +41200,8 @@ Usage: memex import <source> [--dry-run] [--dir <path>]`
 // src/commands/doctor.ts
 init_store();
 init_parser();
-import { readdir as readdir4 } from "node:fs/promises";
-import { join as join9, basename as basename3 } from "node:path";
+import { readdir as readdir5 } from "node:fs/promises";
+import { join as join10, basename as basename4 } from "node:path";
 async function checkCollisions(cardsDir, archiveDir) {
   try {
     const basenameStore = new CardStore(cardsDir, archiveDir, false);
@@ -41257,21 +41298,21 @@ async function scanExtraSlugs(home, extraDirs) {
   async function walkDir(dir) {
     let entries;
     try {
-      entries = await readdir4(dir, { withFileTypes: true });
+      entries = await readdir5(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const entry of entries) {
-      const fullPath = join9(dir, entry.name);
+      const fullPath = join10(dir, entry.name);
       if (entry.isDirectory()) {
         await walkDir(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        slugs.add(basename3(entry.name, ".md"));
+        slugs.add(basename4(entry.name, ".md"));
       }
     }
   }
   for (const dirName of extraDirs) {
-    await walkDir(join9(home, dirName));
+    await walkDir(join10(home, dirName));
   }
   return slugs;
 }
@@ -41407,8 +41448,8 @@ async function doctorCommand(cardsDir, archiveDir, json2) {
 }
 
 // src/commands/migrate.ts
-import { readFile as readFile7, writeFile as writeFile4 } from "node:fs/promises";
-import { join as join10 } from "node:path";
+import { readFile as readFile8, writeFile as writeFile4 } from "node:fs/promises";
+import { join as join11 } from "node:path";
 async function migrateCommand(memexHome, cardsDir, archiveDir) {
   try {
     const doctorResult = await doctorCommand(cardsDir, archiveDir);
@@ -41420,10 +41461,10 @@ async function migrateCommand(memexHome, cardsDir, archiveDir) {
 Resolve collisions before enabling nestedSlugs.`
       };
     }
-    const configPath = join10(memexHome, ".memexrc");
+    const configPath = join11(memexHome, ".memexrc");
     let config2 = {};
     try {
-      const content = await readFile7(configPath, "utf-8");
+      const content = await readFile8(configPath, "utf-8");
       config2 = JSON.parse(content);
     } catch {
     }
@@ -41445,15 +41486,15 @@ ${doctorResult.output}`
 // src/commands/backlinks.ts
 init_store();
 init_parser();
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 async function backlinksCommand(store, slug, options2 = {}) {
   const storesToSearch = [
     { store, dirPrefix: "cards" }
   ];
   if (options2.all && options2.config?.searchDirs && options2.config.searchDirs.length > 0 && options2.memexHome) {
-    const archiveDir = join11(options2.memexHome, "archive");
+    const archiveDir = join12(options2.memexHome, "archive");
     for (const searchDir of options2.config.searchDirs) {
-      const fullPath = join11(options2.memexHome, searchDir);
+      const fullPath = join12(options2.memexHome, searchDir);
       const additionalStore = new CardStore(fullPath, archiveDir, store["nestedSlugs"]);
       const dirName = searchDir.split("/").pop() || searchDir;
       storesToSearch.push({ store: additionalStore, dirPrefix: dirName });
@@ -41484,13 +41525,13 @@ ${lines.join("\n")}`;
 init_organize();
 init_flomo();
 var __dirname3 = dirname10(fileURLToPath3(import.meta.url));
-var pkg2 = JSON.parse(readFileSync3(join14(__dirname3, "..", "package.json"), "utf-8"));
+var pkg2 = JSON.parse(readFileSync3(join15(__dirname3, "..", "package.json"), "utf-8"));
 async function getStore(opts) {
   const home = await resolveMemexHome();
   await warnIfEmptyCards(home);
   const config2 = await readConfig(home);
   const nestedSlugs = opts?.nested ?? config2.nestedSlugs;
-  return new CardStore(join14(home, "cards"), join14(home, "archive"), nestedSlugs);
+  return new CardStore(join15(home, "cards"), join15(home, "archive"), nestedSlugs);
 }
 function exit(code) {
   if (process.stdout.writableLength === 0) {
@@ -41538,8 +41579,16 @@ program2.command("write <slug>").description("Write a card (content via stdin)")
 });
 program2.command("links [slug]").description("Show link graph stats or specific card links").option("--filter <type>", "Filter cards: orphan or hub").option("--stats", "Show summary statistics instead of card list").option("--json", "Output results as JSON for programmatic use").action(async (slug, cmdOpts) => {
   const store = await getStore();
+  const home = await resolveMemexHome();
+  const config2 = await readConfig(home);
   const filter = cmdOpts?.filter;
-  const result = await linksCommand(store, slug, { filter, stats: cmdOpts?.stats, json: cmdOpts?.json });
+  const result = await linksCommand(store, slug, {
+    filter,
+    stats: cmdOpts?.stats,
+    json: cmdOpts?.json,
+    home,
+    extraLinkDirs: config2.extraLinkDirs
+  });
   if (result.output) process.stdout.write(result.output + "\n");
   exit(result.exitCode);
 });
@@ -41632,8 +41681,8 @@ program2.command("import [source]").description("Import memories from other tool
 program2.command("doctor").description("Check memex health and configuration").option("--check-collisions", "Check for slug collisions in basename mode").option("--verbose", "Show detailed output for warnings").option("--json", "Output results as JSON for programmatic use").option("--extra-dirs <dirs>", "Comma-separated extra directories for link resolution").action(async (opts) => {
   const home = await resolveMemexHome();
   const config2 = await readConfig(home);
-  const cardsDir = join14(home, "cards");
-  const archiveDir = join14(home, "archive");
+  const cardsDir = join15(home, "cards");
+  const archiveDir = join15(home, "archive");
   if (opts.checkCollisions) {
     const result = await doctorCommand(cardsDir, archiveDir, opts.json);
     if (result.output) process.stdout.write(result.output + "\n");
@@ -41647,8 +41696,8 @@ program2.command("doctor").description("Check memex health and configuration").o
 });
 program2.command("migrate").description("Migrate memex configuration").option("--enable-nested", "Enable nestedSlugs in config").action(async (opts) => {
   const home = await resolveMemexHome();
-  const cardsDir = join14(home, "cards");
-  const archiveDir = join14(home, "archive");
+  const cardsDir = join15(home, "cards");
+  const archiveDir = join15(home, "archive");
   if (opts.enableNested) {
     const result = await migrateCommand(home, cardsDir, archiveDir);
     if (result.output) process.stdout.write(result.output + "\n");

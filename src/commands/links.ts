@@ -1,6 +1,9 @@
+import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { CardStore } from "../lib/store.js";
 import { parseFrontmatter, extractLinks } from "../lib/parser.js";
 import { formatLinkStats, formatCardLinks, LinkStatsItem } from "../lib/formatter.js";
+import { scanMarkdownFiles } from "../lib/scan.js";
 
 const HUB_THRESHOLD = 10;
 
@@ -13,6 +16,8 @@ export interface LinksOptions {
   filter?: "orphan" | "hub";
   stats?: boolean;
   json?: boolean;
+  home?: string;
+  extraLinkDirs?: string[];
 }
 
 export async function linksCommand(store: CardStore, slug: string | undefined, opts?: LinksOptions): Promise<LinksResult> {
@@ -38,6 +43,27 @@ export async function linksCommand(store: CardStore, slug: string | undefined, o
       const existing = inboundMap.get(resolved) || [];
       existing.push(card.slug);
       inboundMap.set(resolved, existing);
+    }
+  }
+
+  // Scan extraLinkDirs for inbound links to cards
+  if (opts?.home && opts?.extraLinkDirs && opts.extraLinkDirs.length > 0) {
+    for (const dirName of opts.extraLinkDirs) {
+      const extraDir = resolve(join(opts.home, dirName));
+      if (extraDir === resolve(store.cardsDir)) continue;
+      const extraFiles = await scanMarkdownFiles(extraDir);
+      for (const file of extraFiles) {
+        const raw = await readFile(file.path, "utf-8");
+        const { content } = parseFrontmatter(raw);
+        const links = extractLinks(content);
+        for (const link of links) {
+          const resolved = resolveLink(link) ?? link;
+          if (inboundMap.has(resolved)) {
+            const existing = inboundMap.get(resolved)!;
+            existing.push(`~${file.slug}`);
+          }
+        }
+      }
     }
   }
 
