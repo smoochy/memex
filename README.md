@@ -65,15 +65,17 @@ That's it — no extra setup needed. The MCP tool descriptions tell your agent w
 
 All clients read and write the same `~/.memex/cards/` directory. Sync across devices with git:
 
-> **Prerequisite:** Auto-create requires [GitHub CLI](https://cli.github.com/) (`gh auth login`). Or pass your own repo URL to skip this.
+> **Prerequisite:** Auto-create requires [GitHub CLI](https://cli.github.com/) (`gh auth login`). Or pass your own git remote URL to skip this, including GitLab and self-hosted GitLab remotes.
 
 ```bash
 memex sync --init                # auto-creates private memex-cards repo on GitHub
-memex sync --init <repo-url>     # or specify your own repo URL (no gh CLI needed)
+memex sync --init <repo-url>     # or specify your own repo URL (no gh/glab CLI needed)
 memex sync on                    # enable auto-sync after every write
 memex sync                       # manual sync
 memex sync off                   # disable auto-sync
 ```
+
+For GitLab, create an empty private repository first, then pass its SSH or HTTPS remote URL. See the [GitLab sync guide](docs/GITLAB_SYNC.md) for examples.
 
 ### Browse your memory
 
