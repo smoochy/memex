@@ -157,14 +157,16 @@ The actual card body.`;
     expect(buildEmbeddingText(raw)).toBe(raw);
   });
 
-  it("returns raw text when frontmatter has no relevant fields", () => {
+  it("returns parsed body text when frontmatter has no relevant fields", () => {
     const raw = `---
 created: 2026-05-04
 source: test
 ---
 
 Body only.`;
-    expect(buildEmbeddingText(raw)).toBe(raw);
+    const result = buildEmbeddingText(raw);
+    expect(result).toBe("\nBody only.");
+    expect(result).not.toContain("---");
   });
 
   it("handles partial metadata (only title)", () => {

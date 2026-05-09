@@ -741,7 +741,7 @@ export function buildEmbeddingText(raw: string): string {
   }
 
   if (parts.length === 0) {
-    return raw;
+    return content;
   }
 
   return parts.join("\n") + "\n\n" + content;
