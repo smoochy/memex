@@ -20,6 +20,7 @@ export function registerOperations(
   home: string,
   getClientName: () => string,
 ): void {
+  const INDEX_CHAR_LIMIT = 4000;
   // ---- recall ----
   server.registerTool("memex_recall", {
     description: "IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory — knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. Optionally search by query. Without calling this first, you will miss context from prior sessions and repeat past mistakes.",
@@ -47,11 +48,16 @@ export function registerOperations(
     if (!filter) {
       const indexResult = await readCommand(store, "index");
       if (indexResult.success) {
-        return { content: [{ type: "text" as const, text: indexResult.content! }] };
+        const fullIndex = indexResult.content!;
+        if (fullIndex.length <= INDEX_CHAR_LIMIT) {
+          return { content: [{ type: "text" as const, text: fullIndex }] };
+        }
+        const summary = summarizeIndex(fullIndex, INDEX_CHAR_LIMIT);
+        return { content: [{ type: "text" as const, text: summary }] };
       }
     }
 
-    const listResult = await searchCommand(store, undefined, { filter });
+    const listResult = await searchCommand(store, undefined, { limit: 10, filter });
     return { content: [{ type: "text" as const, text: listResult.output || "No cards yet." }] };
   });
 
@@ -208,4 +214,45 @@ export function registerOperations(
     return { content: [{ type: "text" as const, text }] };
   });
 
+}
+
+function summarizeIndex(indexContent: string, charLimit: number): string {
+  const lines = indexContent.split("\n");
+  const sections: { heading: string; entryCount: number }[] = [];
+  let currentHeading = "";
+  let currentCount = 0;
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+)/);
+    if (headingMatch) {
+      if (currentHeading) {
+        sections.push({ heading: currentHeading, entryCount: currentCount });
+      }
+      currentHeading = headingMatch[1];
+      currentCount = 0;
+    } else if (line.match(/^-\s+/) && currentHeading) {
+      currentCount++;
+    }
+  }
+  if (currentHeading) {
+    sections.push({ heading: currentHeading, entryCount: currentCount });
+  }
+
+  const totalEntries = sections.reduce((sum, s) => sum + s.entryCount, 0);
+
+  const truncated = indexContent.slice(0, charLimit);
+  const lastNewline = truncated.lastIndexOf("\n");
+  const cleanTruncated = lastNewline > 0 ? truncated.slice(0, lastNewline) : truncated;
+
+  const sectionSummary = sections
+    .map((s) => `- **${s.heading}**: ${s.entryCount} entries`)
+    .join("\n");
+
+  return (
+    `Index summary (${totalEntries} total entries across ${sections.length} sections):\n` +
+    sectionSummary +
+    `\n\n--- Showing first ${charLimit} chars ---\n\n` +
+    cleanTruncated +
+    `\n\n(Index truncated. Use \`memex search <keyword>\` to find specific cards.)`
+  );
 }

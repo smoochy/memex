@@ -127,6 +127,32 @@ When JWT revoke fails, use cache as fallback. See [[jwt-migration]].`
     expect(result.output).not.toContain("Links:");
     expect(result.output).not.toContain("JWT migration is about moving from sessions to tokens.");
   });
+
+  it("caps empty-query results at limit and shows truncation message", async () => {
+    const cardsDir = join(tmpDir, "cards");
+    for (let i = 0; i < 15; i++) {
+      await writeFile(
+        join(cardsDir, `card-${i}.md`),
+        `---\ntitle: Card ${i}\n---\nContent ${i}`
+      );
+    }
+    store.invalidateCache();
+    const result = await searchCommand(store, undefined, { limit: 5 });
+    expect(result.output).toContain("5 of ");
+    expect(result.output).toContain("cards shown");
+    expect(result.totalCount).toBe(17); // 2 original + 15 new
+  });
+
+  it("shows no truncation message when all cards fit within limit", async () => {
+    const result = await searchCommand(store, undefined, { limit: 50 });
+    expect(result.output).not.toContain("cards shown");
+    expect(result.totalCount).toBe(2);
+  });
+
+  it("returns totalCount for keyword search", async () => {
+    const result = await searchCommand(store, "JWT");
+    expect(result.totalCount).toBe(2);
+  });
 });
 
 describe("searchCommand with --all flag (multi-directory)", () => {

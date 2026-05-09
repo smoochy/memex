@@ -134,4 +134,20 @@ describe("MCP server", () => {
     expect(readResult.isError).toBe(true);
   });
 
+  it("memex_search clamps limit to max 50", async () => {
+    const cards: Record<string, string> = {};
+    for (let i = 0; i < 60; i++) {
+      cards[`card-${i}`] = `---\ntitle: Card ${i}\n---\nContent about topic ${i}`;
+    }
+    await setup(cards);
+    const result = await client.callTool({
+      name: "memex_search",
+      arguments: { limit: 100 },
+    });
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    // With 60 cards and limit clamped to 50, should show truncation
+    expect(text).toContain("50 of 60");
+    expect(text).toContain("cards shown");
+  });
+
 });
