@@ -28,9 +28,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fast-forward main from upstream
+      - name: Rebase main onto upstream
         run: |
           git remote add upstream https://github.com/iamtouchskyer/memex.git
           git fetch upstream main
-          git merge --ff-only upstream/main
-          git push origin HEAD:main
+          git rebase upstream/main
+          git push --force-with-lease origin HEAD:main
