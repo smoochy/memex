@@ -1,7 +1,7 @@
 {
   "name": "@touchskyer/memex",
   "mcpName": "io.github.iamtouchskyer/memex",
-  "version": "0.1.29",
+  "version": "0.1.32",
   "description": "Zettelkasten-based agent memory system with bidirectional links",
   "type": "module",
   "bin": {
@@ -18,8 +18,8 @@
     "GEMINI.md"
   ],
   "scripts": {
-    "prepare": "[ -d .git ] && cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit || true",
-    "build": "tsc",
+    "prepare": "node -e \"const fs=require('fs'),p=require('path');if(fs.existsSync('.git')){fs.mkdirSync(p.join('.git','hooks'),{recursive:true});fs.copyFileSync(p.join('scripts','pre-commit'),p.join('.git','hooks','pre-commit'));if(process.platform!=='win32')fs.chmodSync(p.join('.git','hooks','pre-commit'),0o755)}\" || true",
+    "build": "node scripts/bundle.mjs",
     "postbuild": "node scripts/postbuild.mjs",
     "prepublishOnly": "npm run build",
     "test": "vitest run",
@@ -35,7 +35,7 @@
   ],
   "pi": {
     "extensions": [
-      "pi-extension"
+      "pi-extension/index.ts"
     ]
   },
   "license": "MIT",
@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "esbuild": "^0.27.7",
     "happy-dom": "^20.8.4",
     "marked": "^17.0.5",
     "typescript": "^5.9.3",

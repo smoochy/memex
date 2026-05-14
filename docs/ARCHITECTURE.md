@@ -74,7 +74,7 @@ src/
 │   ├── hooks.ts              # HookRegistry: pre/post lifecycle hooks
 │   ├── sync.ts               # GitAdapter, SyncConfig, autoSync/autoFetch
 │   ├── config.ts             # .memexrc reader
-│   ├── embeddings.ts         # OpenAI/Local/Ollama providers, cache, cosine similarity
+│   ├── embeddings.ts         # OpenAI/Azure/Local/Ollama providers, cache, cosine similarity
 │   └── utils.ts              # semverSort utility
 ├── importers/
 │   ├── index.ts              # Importer registry
@@ -84,7 +84,9 @@ skills/                       # Claude Code skills (bundled in plugin)
 ├── memex-retro/SKILL.md
 ├── memex-organize/SKILL.md
 ├── memex-sync/SKILL.md
-└── memex-best-practices/SKILL.md
+├── memex-best-practices/SKILL.md
+├── memex-agentic-memory/SKILL.md  # Experimental (requires agenticMemory flag)
+└── agent-prompts-warmup/SKILL.md  # FRE audit and agent instruction sync
 hooks/
 └── hooks.json                # Claude Code SessionStart hook
 .claude-plugin/
@@ -206,10 +208,10 @@ post:organize → autoSync
 
 ### Semantic Search (`--semantic`)
 
-- Providers: OpenAI (`text-embedding-3-small`), Local (`node-llama-cpp` + GGUF), Ollama (`nomic-embed-text`)
+- Providers: OpenAI (`text-embedding-3-small`), Azure OpenAI (`text-embedding-3-large` deployment), Local (`node-llama-cpp` + GGUF), Ollama (`nomic-embed-text`)
 - Hybrid scoring: `0.7 * semantic + 0.3 * keyword_normalized`
 - Embedding cache: `~/.memex/.memex/embeddings/<model>.json`, invalidated by SHA-256 content hash
-- Auto-detection: OpenAI API key → node-llama-cpp → Ollama → error
+- Auto-detection: OpenAI API key -> Azure OpenAI endpoint + key -> node-llama-cpp -> error; Ollama is explicit-only
 
 ### Manifest Filters
 
@@ -231,7 +233,7 @@ post:organize → autoSync
 ### Claude Code Plugin
 
 - **SessionStart hook** (`hooks/hooks.json`): checks CLI install, runs sync, injects recall/retro reminders
-- **5 skills**: recall, retro, organize, sync, best-practices
+- **7 skills**: recall, retro, organize, sync, best-practices, agentic-memory (experimental), agent-prompts-warmup
 - **Install**: `/plugin install memex@memex`
 - **Marketplace**: `.claude-plugin/marketplace.json`
 
@@ -296,13 +298,37 @@ npm run test:watch    # vitest watch mode
 |-------|------|---------|-------|
 | `nestedSlugs` | boolean | false | Path-preserving slugs |
 | `searchDirs` | string[] | — | Extra dirs for `--all` |
-| `embeddingProvider` | "openai"\|"local"\|"ollama" | auto-detect | |
+| `embeddingProvider` | "openai"\|"azure"\|"local"\|"ollama" | auto-detect | |
 | `openaiApiKey` | string | env `OPENAI_API_KEY` | |
 | `openaiBaseUrl` | string | `https://api.openai.com` | |
-| `embeddingModel` | string | `text-embedding-3-small` | |
+| `embeddingModel` | string | `text-embedding-3-small` | OpenAI model or Azure deployment | |
+| `azureOpenaiEndpoint` | string | env `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint, e.g. `/openai/v1/` |
+| `azureOpenaiApiKey` | string | env `AZURE_OPENAI_API_KEY` | Prefer env/key file |
+| `azureOpenaiApiKeyPath` | string | `~/.azure_api_key` | Local key file path |
 | `ollamaModel` | string | `nomic-embed-text` | |
 | `ollamaBaseUrl` | string | `http://localhost:11434` | |
 | `localModelPath` | string | HuggingFace URI | |
+| `experimental` | object | — | Experimental feature flags (see below) |
+
+#### Experimental Flags
+
+The `experimental` field is an optional object for gating features that are not yet stable.
+
+| Flag | Type | Default | Notes |
+|------|------|---------|-------|
+| `agenticMemory` | boolean | `false` | Enables the A-MEM-inspired agentic memory skill workflow. Only `true` activates; `false`, `null`, missing, or non-boolean values are treated as disabled. |
+
+Example `.memexrc` with experimental flags:
+
+```json
+{
+  "experimental": {
+    "agenticMemory": true
+  }
+}
+```
+
+When `agenticMemory` is enabled, agents may use the `memex-agentic-memory` skill for structured knowledge capture (observe → draft → enrich → retrieve → decide → preview → write → verify). When disabled, agents use the standard `memex-retro` workflow. See `skills/memex-agentic-memory/SKILL.md` for the full skill specification.
 
 ### Environment Variables
 
@@ -310,6 +336,10 @@ npm run test:watch    # vitest watch mode
 |-----|---------|
 | `MEMEX_HOME` | Override home dir (default `~/.memex`) |
 | `OPENAI_API_KEY` | OpenAI embeddings |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
+| `AZURE_OPENAI_API_KEY_FILE` | Azure OpenAI API key file path |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Azure OpenAI embedding deployment override |
 | `OPENAI_BASE_URL` | Custom OpenAI endpoint |
 | `MEMEX_EMBEDDING_PROVIDER` | Force provider type |
 | `MEMEX_OLLAMA_MODEL` | Ollama model override |

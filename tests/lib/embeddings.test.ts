@@ -7,6 +7,7 @@ import {
   cosineSimilarity,
   contentHash,
   embedCards,
+  buildEmbeddingText,
   type EmbeddingProvider,
 } from "../../src/lib/embeddings.js";
 import { CardStore } from "../../src/lib/store.js";
@@ -124,6 +125,80 @@ describe("contentHash", () => {
   });
 });
 
+// --- buildEmbeddingText ---
+
+describe("buildEmbeddingText", () => {
+  it("prepends title, category, context, keywords, tags to body", () => {
+    const raw = `---
+title: My Card
+created: 2026-05-04
+source: test
+category: debugging
+context: Fixes a tricky parser bug
+keywords: parser, yaml, frontmatter
+tags: bugfix, core
+---
+
+The actual card body.`;
+    const result = buildEmbeddingText(raw);
+    expect(result).toContain("title: My Card");
+    expect(result).toContain("category: debugging");
+    expect(result).toContain("context: Fixes a tricky parser bug");
+    expect(result).toContain("keywords: parser, yaml, frontmatter");
+    expect(result).toContain("tags: bugfix, core");
+    expect(result).toContain("The actual card body.");
+    // Should NOT include non-metadata fields like created/source
+    expect(result).not.toContain("created:");
+    expect(result).not.toContain("source:");
+  });
+
+  it("returns raw text when no metadata fields are present", () => {
+    const raw = "Just plain text, no frontmatter.";
+    expect(buildEmbeddingText(raw)).toBe(raw);
+  });
+
+  it("returns parsed body text when frontmatter has no relevant fields", () => {
+    const raw = `---
+created: 2026-05-04
+source: test
+---
+
+Body only.`;
+    const result = buildEmbeddingText(raw);
+    expect(result).toBe("\nBody only.");
+    expect(result).not.toContain("---");
+  });
+
+  it("handles partial metadata (only title)", () => {
+    const raw = `---
+title: Solo Title
+created: 2026-05-04
+---
+
+Some content.`;
+    const result = buildEmbeddingText(raw);
+    expect(result).toMatch(/^title: Solo Title\n\n/);
+    expect(result).toContain("Some content.");
+  });
+
+  it("handles array keywords and tags from YAML", () => {
+    const raw = `---
+title: Array Test
+keywords:
+  - foo
+  - bar
+tags:
+  - alpha
+  - beta
+---
+
+Body.`;
+    const result = buildEmbeddingText(raw);
+    expect(result).toContain("keywords: foo, bar");
+    expect(result).toContain("tags: alpha, beta");
+  });
+});
+
 // --- embedCards ---
 
 describe("embedCards", () => {
@@ -229,5 +304,35 @@ describe("embedCards", () => {
     const result = await embedCards(store, provider, cache);
     expect(result.removed).toBe(1);
     expect(cache.get("beta")).toBeUndefined();
+  });
+
+  it("sends enriched text (not raw) to provider and re-embeds when format changes hash", async () => {
+    const cardContent = `---
+title: Enriched Card
+category: testing
+---
+
+Body text.`;
+    await writeFile(join(cardsDir, "enriched.md"), cardContent);
+
+    const store = new CardStore(cardsDir, archiveDir);
+    const cache = new EmbeddingCache(tmpDir, "mock-model");
+    const embeddedTexts: string[][] = [];
+    const spyProvider: EmbeddingProvider = {
+      model: "mock-model",
+      async embed(texts: string[]): Promise<number[][]> {
+        embeddedTexts.push(texts);
+        return texts.map(() => [0.1, 0.2, 0.3]);
+      },
+    };
+
+    await embedCards(store, spyProvider, cache);
+
+    // Provider should have received enriched text with metadata prepended
+    expect(embeddedTexts[0][0]).toContain("title: Enriched Card");
+    expect(embeddedTexts[0][0]).toContain("category: testing");
+    expect(embeddedTexts[0][0]).toContain("Body text.");
+    // Should NOT contain raw YAML delimiters
+    expect(embeddedTexts[0][0]).not.toMatch(/^---/);
   });
 });

@@ -10,16 +10,26 @@ You are maintaining a Zettelkasten memory system. Your job is to keep the card n
 
 ## Tools Available
 
-Two equivalent interfaces exist — use whichever your environment supports:
+Three equivalent interfaces — use whichever your environment supports:
 
-| CLI (Claude Code with memex in PATH) | MCP tool (VSCode / Cursor / any MCP client) |
-|---------------------------------------|----------------------------------------------|
-| `memex search [query]`               | `memex_search` with optional query arg       |
-| `memex read <slug>`                   | `memex_read` with slug arg                   |
-| `memex write <slug>`                  | `memex_write` with slug arg and body         |
-| `memex links`                         | `memex_links` with no args                   |
-| `memex links <slug>`                  | `memex_links` with slug arg                  |
-| `memex archive <slug>`               | `memex_archive` with slug arg                |
+| CLI (memex in PATH) | Plugin CLI fallback (Claude Code) | MCP tool (VSCode / Cursor) |
+|----------------------|-----------------------------------|----------------------------|
+| `memex search [q]`  | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js search [q]` | `memex_search` with optional query arg |
+| `memex read <slug>`  | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js read <slug>` | `memex_read` with slug arg |
+| `memex write <slug>` | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js write <slug>` | `memex_write` with slug arg and body |
+| `memex links`        | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js links` | `memex_links` with no args |
+| `memex links <slug>` | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js links <slug>` | `memex_links` with slug arg |
+| `memex archive <slug>` | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js archive <slug>` | `memex_archive` with slug arg |
+
+**Resolution order:** Try `memex` in PATH first. If not found, define a shell function and use it:
+
+```bash
+memex() { node $HOME/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js "$@"; }
+```
+
+If both CLI approaches fail, use MCP tools.
+
+The rest of this skill uses `memex` CLI syntax for brevity.
 
 The rest of this skill uses CLI syntax for brevity. Substitute MCP tool calls if CLI is unavailable.
 

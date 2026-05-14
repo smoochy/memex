@@ -10,13 +10,28 @@ import { readConfig } from "../lib/config.js";
 import { HookRegistry } from "../lib/hooks.js";
 import { autoFetch, autoSync } from "../lib/sync.js";
 import { registerOperations } from "./operations.js";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(__dirname, "..", "..", "package.json"), "utf-8"));
+const pkg = readPackageJson(__dirname);
+
+function readPackageJson(startDir: string): { version: string } {
+  let dir = startDir;
+  for (let depth = 0; depth < 6; depth++) {
+    const path = join(dir, "package.json");
+    if (existsSync(path)) {
+      const pkg = JSON.parse(readFileSync(path, "utf-8"));
+      if (pkg.name === "@touchskyer/memex") return pkg;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return { version: "0.0.0" };
+}
 
 export function createMemexServer(store: CardStore, home?: string): McpServer {
   const server = new McpServer({
@@ -40,16 +55,19 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
     if (home) await autoFetch(home);
   };
 
+  const MCP_MAX_RESULTS = 50;
+
   server.registerTool("memex_search", {
     description: "Low-level search. Prefer memex_recall for task-start workflows.",
     inputSchema: z.object({
       query: z.string().optional().describe("Search keyword. Omit to list all cards."),
-      limit: z.number().optional().describe("Max results (default 10)"),
+      limit: z.number().optional().describe(`Max results (default 10, max ${MCP_MAX_RESULTS})`),
       semantic: z.boolean().optional().describe("Use embedding-based semantic search"),
     }),
   }, async ({ query, limit, semantic }) => {
     const config = home ? await readConfig(home) : undefined;
-    const result = await searchCommand(store, query, { limit, semantic, config, memexHome: home });
+    const clampedLimit = Math.min(limit ?? 10, MCP_MAX_RESULTS);
+    const result = await searchCommand(store, query, { limit: clampedLimit, semantic, config, memexHome: home });
     return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
   });
 
@@ -92,7 +110,12 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
       slug: z.string().optional().describe("Card slug. Omit for global stats."),
     }),
   }, async ({ slug }) => {
-    const result = await linksCommand(store, slug);
+    let opts;
+    if (home) {
+      const config = await readConfig(home);
+      opts = { home, extraLinkDirs: config.extraLinkDirs };
+    }
+    const result = await linksCommand(store, slug, opts);
     return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
   });
 

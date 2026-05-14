@@ -1,8 +1,18 @@
+import { join } from "node:path";
 import { CardStore } from "../lib/store.js";
+import { parseFrontmatter, extractLinks } from "../lib/parser.js";
+import { scanMarkdownFiles } from "../lib/scan.js";
 
-interface DoctorResult {
+export interface DoctorResult {
   exitCode: number;
   output?: string;
+}
+
+export interface CheckResult {
+  name: string;
+  status: "ok" | "warn" | "error";
+  message: string;
+  details?: string[];
 }
 
 interface CollisionGroup {
@@ -11,16 +21,14 @@ interface CollisionGroup {
   fullPaths: string[];
 }
 
-export async function doctorCommand(
+export async function checkCollisions(
   cardsDir: string,
   archiveDir: string
-): Promise<DoctorResult> {
+): Promise<CheckResult> {
   try {
-    // Scan with basename mode (nestedSlugs=false) to find collisions
     const basenameStore = new CardStore(cardsDir, archiveDir, false);
     const cards = await basenameStore.scanAll();
 
-    // Group by slug to find collisions
     const slugMap = new Map<string, string[]>();
     for (const card of cards) {
       if (!slugMap.has(card.slug)) {
@@ -29,30 +37,252 @@ export async function doctorCommand(
       slugMap.get(card.slug)!.push(card.path);
     }
 
-    // Find collision groups (slugs with multiple paths)
     const collisions: CollisionGroup[] = [];
     for (const [slug, paths] of slugMap.entries()) {
       if (paths.length > 1) {
-        // Get full paths using nested mode
         const nestedStore = new CardStore(cardsDir, archiveDir, true);
         const nestedCards = await nestedStore.scanAll();
         const fullPaths = paths.map((path) => {
           const found = nestedCards.find((c) => c.path === path);
           return found?.slug ?? path;
         });
-
         collisions.push({ slug, paths, fullPaths });
       }
     }
 
     if (collisions.length === 0) {
       return {
+        name: "Slug collisions",
+        status: "ok",
+        message: "none found",
+      };
+    }
+
+    const details = collisions
+      .map((c) => `  "${c.slug}" → ${c.paths.join(", ")}`)
+      .join("\n");
+    return {
+      name: "Slug collisions",
+      status: "error",
+      message: `${collisions.length} collision(s) found\n${details}`,
+    };
+  } catch (e) {
+    return {
+      name: "Slug collisions",
+      status: "error",
+      message: `check failed: ${(e as Error).message}`,
+    };
+  }
+}
+
+export async function checkOrphans(
+  cardsDir: string,
+  archiveDir: string,
+  verbose?: boolean
+): Promise<CheckResult> {
+  try {
+    const store = new CardStore(cardsDir, archiveDir, true);
+    const cards = await store.scanAll();
+    if (cards.length === 0) {
+      return { name: "Orphans", status: "ok", message: "no cards found" };
+    }
+
+    const resolveLink = store.buildLinkResolver(cards);
+    const inboundMap = new Map<string, number>();
+    for (const card of cards) {
+      inboundMap.set(card.slug, 0);
+    }
+
+    for (const card of cards) {
+      const raw = await store.readCard(card.slug);
+      const { content } = parseFrontmatter(raw);
+      const links = extractLinks(content);
+      for (const link of links) {
+        const resolved = resolveLink(link) ?? link;
+        if (inboundMap.has(resolved)) {
+          inboundMap.set(resolved, (inboundMap.get(resolved) || 0) + 1);
+        }
+      }
+    }
+
+    const orphans = Array.from(inboundMap.entries())
+      .filter(([, count]) => count === 0)
+      .map(([slug]) => slug);
+
+    if (orphans.length === 0) {
+      return { name: "Orphans", status: "ok", message: "all cards have inbound links" };
+    }
+
+    const pct = ((orphans.length / cards.length) * 100).toFixed(0);
+    let message = `${orphans.length} cards (${pct}%) have no inbound links`;
+    if (verbose) {
+      message += "\n" + orphans.map((s) => `  ${s}`).join("\n");
+    }
+    return {
+      name: "Orphans",
+      status: "warn",
+      message,
+      details: orphans,
+    };
+  } catch (e) {
+    return {
+      name: "Orphans",
+      status: "error",
+      message: `check failed: ${(e as Error).message}`,
+    };
+  }
+}
+
+export async function scanExtraSlugs(home: string, extraDirs: string[]): Promise<Set<string>> {
+  const slugs = new Set<string>();
+  for (const dirName of extraDirs) {
+    const files = await scanMarkdownFiles(join(home, dirName));
+    for (const file of files) {
+      slugs.add(file.slug);
+    }
+  }
+  return slugs;
+}
+
+export async function checkBrokenLinks(
+  cardsDir: string,
+  archiveDir: string,
+  verbose?: boolean,
+  extraSlugs?: Set<string>
+): Promise<CheckResult> {
+  try {
+    const store = new CardStore(cardsDir, archiveDir, true);
+    const cards = await store.scanAll();
+    const resolveLink = store.buildLinkResolver(cards);
+    const broken: { from: string; to: string }[] = [];
+    // Build case-insensitive extra slugs set
+    const extraSlugsLower = extraSlugs
+      ? new Set([...extraSlugs].map((s) => s.toLowerCase()))
+      : undefined;
+
+    for (const card of cards) {
+      const raw = await store.readCard(card.slug);
+      const { content } = parseFrontmatter(raw);
+      const links = extractLinks(content);
+      for (const link of links) {
+        if (
+          !resolveLink(link) &&
+          !extraSlugs?.has(link) &&
+          !extraSlugsLower?.has(link.toLowerCase())
+        ) {
+          broken.push({ from: card.slug, to: link });
+        }
+      }
+    }
+
+    if (broken.length === 0) {
+      return { name: "Broken links", status: "ok", message: "none found" };
+    }
+
+    let message = `${broken.length} link(s) to non-existent cards`;
+    if (verbose) {
+      const detailLines = broken.map((b) => `  ${b.from} → ${b.to}`).join("\n");
+      message += "\n" + detailLines;
+    }
+
+    return {
+      name: "Broken links",
+      status: "warn",
+      message,
+      details: broken.map((b) => `${b.from} → ${b.to}`),
+    };
+  } catch (e) {
+    return {
+      name: "Broken links",
+      status: "error",
+      message: `check failed: ${(e as Error).message}`,
+    };
+  }
+}
+
+function formatCheckResult(r: CheckResult): string {
+  const icon = r.status === "ok" ? "✓" : r.status === "warn" ? "⚠" : "✗";
+  return `${icon} ${r.name}: ${r.message}`;
+}
+
+export async function doctorRunAll(
+  cardsDir: string,
+  archiveDir: string,
+  verbose?: boolean,
+  json?: boolean,
+  home?: string,
+  extraLinkDirs?: string[]
+): Promise<DoctorResult> {
+  let extraSlugs: Set<string> | undefined;
+  if (home && extraLinkDirs && extraLinkDirs.length > 0) {
+    extraSlugs = await scanExtraSlugs(home, extraLinkDirs);
+  }
+
+  const results = await Promise.all([
+    checkCollisions(cardsDir, archiveDir),
+    checkOrphans(cardsDir, archiveDir, verbose),
+    checkBrokenLinks(cardsDir, archiveDir, verbose, extraSlugs),
+  ]);
+
+  const hasError = results.some((r) => r.status === "error");
+
+  if (json) {
+    const jsonOutput = results.map((r) => ({
+      name: r.name,
+      status: r.status,
+      ...(r.details ? { details: r.details } : {}),
+    }));
+    return { exitCode: hasError ? 1 : 0, output: JSON.stringify(jsonOutput, null, 2) };
+  }
+
+  const output = results.map(formatCheckResult).join("\n");
+  return { exitCode: hasError ? 1 : 0, output };
+}
+
+/** Legacy entry point for backward compat (collision check only) — preserves original output format */
+export async function doctorCommand(
+  cardsDir: string,
+  archiveDir: string,
+  json?: boolean
+): Promise<DoctorResult> {
+  try {
+    const basenameStore = new CardStore(cardsDir, archiveDir, false);
+    const cards = await basenameStore.scanAll();
+
+    const slugMap = new Map<string, string[]>();
+    for (const card of cards) {
+      if (!slugMap.has(card.slug)) {
+        slugMap.set(card.slug, []);
+      }
+      slugMap.get(card.slug)!.push(card.path);
+    }
+
+    const collisions: CollisionGroup[] = [];
+    for (const [slug, paths] of slugMap.entries()) {
+      if (paths.length > 1) {
+        const nestedStore = new CardStore(cardsDir, archiveDir, true);
+        const nestedCards = await nestedStore.scanAll();
+        const fullPaths = paths.map((path) => {
+          const found = nestedCards.find((c) => c.path === path);
+          return found?.slug ?? path;
+        });
+        collisions.push({ slug, paths, fullPaths });
+      }
+    }
+
+    if (collisions.length === 0) {
+      if (json) {
+        return {
+          exitCode: 0,
+          output: JSON.stringify([{ name: "Slug collisions", status: "ok" }], null, 2),
+        };
+      }
+      return {
         exitCode: 0,
         output: "No slug collisions found. Safe to enable nestedSlugs.",
       };
     }
 
-    // Build collision report
     const lines: string[] = [`Found ${collisions.length} slug collision(s):\n`];
     for (const collision of collisions) {
       lines.push(`Slug "${collision.slug}" collides:`);
@@ -64,10 +294,18 @@ export async function doctorCommand(
     }
     lines.push("Resolve these collisions before enabling nestedSlugs.");
 
-    return {
-      exitCode: 1,
-      output: lines.join("\n"),
-    };
+    if (json) {
+      const details = collisions.map((c) => ({
+        slug: c.slug,
+        paths: c.paths,
+        fullPaths: c.fullPaths,
+      }));
+      return {
+        exitCode: 1,
+        output: JSON.stringify([{ name: "Slug collisions", status: "error", details }], null, 2),
+      };
+    }
+    return { exitCode: 1, output: lines.join("\n") };
   } catch (e) {
     return {
       exitCode: 1,

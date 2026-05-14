@@ -58,6 +58,30 @@ describe("extractLinks", () => {
     expect(links).toEqual(["foo"]);
   });
 
+  it("strips pipe aliases from wikilinks", () => {
+    const content = "See [[dreaming|OpenClaw dreaming metaphor]] and [[target|display text]].";
+    const links = extractLinks(content);
+    expect(links).toEqual(["dreaming", "target"]);
+  });
+
+  it("ignores wikilinks inside fenced code blocks", () => {
+    const content = "Real [[link-a]].\n```\n[[not-a-link]]\n```\nAlso [[link-b]].";
+    const links = extractLinks(content);
+    expect(links).toEqual(["link-a", "link-b"]);
+  });
+
+  it("ignores wikilinks inside inline code", () => {
+    const content = "Use `[[not-a-link]]` to reference, but [[real-link]] works.";
+    const links = extractLinks(content);
+    expect(links).toEqual(["real-link"]);
+  });
+
+  it("handles pipe alias with no display text gracefully", () => {
+    const content = "See [[target|]].";
+    const links = extractLinks(content);
+    expect(links).toEqual(["target"]);
+  });
+
   it("extracts links only from body, not frontmatter", () => {
     const content = `---
 title: "About [[not-a-link]]"

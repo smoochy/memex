@@ -10,15 +10,31 @@ You have access to a Zettelkasten memory system via the `memex` CLI. After compl
 
 ## Tools Available
 
-Two equivalent interfaces exist — use whichever your environment supports:
+Three equivalent interfaces — use whichever your environment supports:
 
-| CLI (Claude Code with memex in PATH) | MCP tool (VSCode / Cursor / any MCP client) |
-|---------------------------------------|----------------------------------------------|
-| `memex search <query>`               | `memex_search` with query arg                |
-| `memex read <slug>`                   | `memex_read` with slug arg                   |
-| `memex write <slug>`                  | `memex_write` with slug arg and body         |
+| CLI (memex in PATH) | Plugin CLI fallback (Claude Code) | MCP tool (VSCode / Cursor) |
+|----------------------|-----------------------------------|----------------------------|
+| `memex search <q>`  | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js search <q>` | `memex_search` with query arg |
+| `memex read <slug>`  | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js read <slug>` | `memex_read` with slug arg |
+| `memex write <slug>` | `node ~/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js write <slug>` | `memex_write` with slug arg and body |
 
-The rest of this skill uses CLI syntax for brevity. Substitute MCP tool calls if CLI is unavailable.
+**Resolution order:** Try `memex` in PATH first. If not found, define a shell function and use it:
+
+```bash
+# Define once per session — DO NOT use variable assignment ($VAR won't expand correctly in zsh)
+memex() { node $HOME/.claude/plugins/cache/cc-plugins/memex/*/dist/cli.js "$@"; }
+
+# Then use normally
+memex search "some query"
+memex read some-slug
+memex write some-slug << 'EOF'
+card content here
+EOF
+```
+
+If both CLI approaches fail, use MCP tools (`memex_search`, `memex_read`, `memex_write`).
+
+The rest of this skill uses `memex` CLI syntax for brevity.
 
 ## Process
 
@@ -28,7 +44,11 @@ digraph retro {
     "Distill: what insights came from this task?" -> "Any insights worth keeping?" [shape=diamond];
     "Any insights worth keeping?" -> "Done, no card written" [label="no"];
     "Any insights worth keeping?" -> "For each insight: draft atomic card" [label="yes"];
-    "For each insight: draft atomic card" -> "memex search for related existing cards";
+    "For each insight: draft atomic card" -> "Fact Hygiene Check (WHO/WHAT-WHEN/RELATIONSHIP)";
+    "Fact Hygiene Check (WHO/WHAT-WHEN/RELATIONSHIP)" -> "Ambiguity found?" [shape=diamond];
+    "Ambiguity found?" -> "Fix draft: make implicit context explicit" [label="yes"];
+    "Fix draft: make implicit context explicit" -> "Fact Hygiene Check (WHO/WHAT-WHEN/RELATIONSHIP)";
+    "Ambiguity found?" -> "memex search for related existing cards" [label="no"];
     "memex search for related existing cards" -> "memex read candidates";
     "memex read candidates" -> "Existing card covers same insight?" [shape=diamond];
     "Existing card covers same insight?" -> "Update existing card (append new info)" [label="yes"];
@@ -45,9 +65,14 @@ digraph retro {
 1. Ask yourself: what did I learn from this task that would be useful in the future?
 2. If nothing worth remembering, skip — not every task produces insights
 3. For each insight, draft an **atomic card** (one insight per card)
-4. Before writing, `memex search` for related existing cards
-5. **Dedup check**: If an existing card already covers this insight, `memex read` it, then update it by appending new information (use `memex write` with the full updated content)
-6. If it's genuinely new, write a new card with `[[links]]` to related cards in the prose
+4. **Fact Hygiene Check** — before writing, scan the draft for implicit context that a stranger (or future AI) couldn't decode. Ask three questions:
+   - **WHO**: Every project/product/team mentioned — is it the user's own work or external? Would a reader with zero context know?
+   - **WHAT-WHEN**: Every number (days, tokens, cost) — is it bound to a specific project name and time period?
+   - **RELATIONSHIP**: Words like "对标/参照/基于/借鉴/reference" — spell out the actual relationship (authored, benchmarked against, forked from, inspired by, etc.)
+   - If any answer is "a stranger couldn't tell", **fix the draft before writing**. One sentence of context prevents hallucinated narratives downstream.
+5. Before writing, `memex search` for related existing cards
+6. **Dedup check**: If an existing card already covers this insight, `memex read` it, then update it by appending new information (use `memex write` with the full updated content)
+7. If it's genuinely new, write a new card with `[[links]]` to related cards in the prose
 
 ## Card Format
 

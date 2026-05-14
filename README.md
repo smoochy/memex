@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/iamtouchskyer-memex-badge.png)](https://mseep.ai/app/iamtouchskyer-memex)
+
 # memex
 
 Persistent memory for AI coding agents. Your agent remembers what it learned across sessions.
@@ -63,15 +65,17 @@ That's it — no extra setup needed. The MCP tool descriptions tell your agent w
 
 All clients read and write the same `~/.memex/cards/` directory. Sync across devices with git:
 
-> **Prerequisite:** Auto-create requires [GitHub CLI](https://cli.github.com/) (`gh auth login`). Or pass your own repo URL to skip this.
+> **Prerequisite:** Auto-create requires [GitHub CLI](https://cli.github.com/) (`gh auth login`). Or pass your own git remote URL to skip this, including GitLab and self-hosted GitLab remotes.
 
 ```bash
 memex sync --init                # auto-creates private memex-cards repo on GitHub
-memex sync --init <repo-url>     # or specify your own repo URL (no gh CLI needed)
+memex sync --init <repo-url>     # or specify your own repo URL (no gh/glab CLI needed)
 memex sync on                    # enable auto-sync after every write
 memex sync                       # manual sync
 memex sync off                   # disable auto-sync
 ```
+
+For GitLab, create an empty private repository first, then pass its SSH or HTTPS remote URL. See the [GitLab sync guide](docs/GITLAB_SYNC.md) for examples.
 
 ### Browse your memory
 
@@ -81,7 +85,11 @@ memex serve
 
 Opens a visual timeline of all your cards at `localhost:3939`. Includes a **graph view** to explore bidirectional links.
 
-If you've set up sync, `memex serve` opens [memra.vercel.app](https://memra.vercel.app) — a web UI with Timeline, Graph view, and Share card.
+If you've set up sync, `memex serve` opens [memra.vercel.app](https://memra.vercel.app) — a web UI with Timeline, Graph view, and Share card. Pass `--local` to force the local UI instead (useful offline, or when you'd rather not send queries to a third-party web app):
+
+```bash
+memex serve --local
+```
 
 ![Graph View](docs/images/graph-view.png)
 
@@ -108,6 +116,34 @@ Based on Niklas Luhmann's Zettelkasten method — the system behind 70 books fro
 - **Keyword index** — curated entry points to the card network
 
 Cards are stored as markdown in `~/.memex/cards/`. Open them in Obsidian, edit with vim, grep from terminal. Your memory is never locked in.
+
+### Configuration
+
+Optional settings go in `~/.memex/.memexrc` (JSON):
+
+```json
+{
+  "nestedSlugs": true,
+  "searchDirs": ["shared"],
+  "experimental": {
+    "agenticMemory": true
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `nestedSlugs` | boolean | `false` | Allow `/` in slugs for hierarchical card paths |
+| `searchDirs` | string[] | — | Extra directories to search with `--all` (in addition to the built-in `cards/` store) |
+| `experimental.agenticMemory` | boolean | `false` | Enable A-MEM-inspired agentic memory workflow (see below) |
+
+#### Experimental: Agentic Memory
+
+When `experimental.agenticMemory` is `true`, agents gain access to a structured memory skill that guides them through: observe → draft atomic card → enrich metadata → retrieve candidates → decide (create/update/skip) → preview → write → verify.
+
+This produces higher-quality cards with agent-proposed `[[wikilinks]]` (links are suggested after candidate retrieval and agent review, never added from keyword or embedding similarity alone) and metadata enrichment, compared to the default recall/retro workflow. The feature is default-off and does not change any existing behavior when disabled.
+
+See `skills/memex-agentic-memory/SKILL.md` for the full skill specification and `docs/ARCHITECTURE.md` for config details.
 
 ---
 
@@ -316,6 +352,12 @@ Instalación completa, no se requiere configuración adicional. Las descripcione
 | **VS Code / Copilot** | La extensión se actualiza automáticamente desde el marketplace |
 | **Claude Code** | `/plugin uninstall memex` → `/plugin install memex@memex` |
 | **Cursor / Codex / Windsurf** | `npm update -g @touchskyer/memex` |
+
+---
+
+## Community
+
+Using memex? Share your setup in [Discussions → Show and tell](https://github.com/iamtouchskyer/memex/discussions/categories/show-and-tell). Questions go in [Q&A](https://github.com/iamtouchskyer/memex/discussions/categories/q-a). Feature ideas in [Ideas](https://github.com/iamtouchskyer/memex/discussions/categories/ideas).
 
 ---
 

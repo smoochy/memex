@@ -37,11 +37,20 @@ export function stringifyFrontmatter(
 }
 
 export function extractLinks(body: string): string[] {
+  // Strip fenced code blocks and inline code to avoid false positives
+  const stripped = body
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/`[^`\n]+`/g, "");
+
   const re = /\[\[([^\]]+)\]\]/g;
   const links = new Set<string>();
   let match: RegExpExecArray | null;
-  while ((match = re.exec(body)) !== null) {
-    links.add(match[1]);
+  while ((match = re.exec(stripped)) !== null) {
+    // Support Obsidian-style pipe aliases: [[target|display text]] → target
+    const target = match[1].split("|")[0].trim();
+    if (target) {
+      links.add(target);
+    }
   }
   return [...links];
 }

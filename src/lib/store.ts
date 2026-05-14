@@ -110,6 +110,92 @@ export class CardStore {
     return found?.path ?? null;
   }
 
+  /**
+   * Resolve a wikilink target to a known slug.
+   * 1. Exact match
+   * 2. Basename-only fallback (only if unambiguous — exactly one card has that basename)
+   * Returns the matched slug or null.
+   */
+  async resolveLink(link: string): Promise<string | null> {
+    const cards = await this.scanAll();
+    const normalised = link.replace(/\\/g, "/");
+
+    // Exact match
+    if (cards.some((c) => c.slug === normalised)) {
+      return normalised;
+    }
+
+    // Basename fallback: find cards whose slug ends with /link
+    if (!normalised.includes("/")) {
+      const matches = cards.filter((c) => {
+        const parts = c.slug.split("/");
+        return parts[parts.length - 1] === normalised;
+      });
+      if (matches.length === 1) {
+        return matches[0].slug;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Build a synchronous link resolution map for batch operations.
+   * Returns a function that resolves a link text to a known slug.
+   */
+  buildLinkResolver(cards: ScannedCard[]): (link: string) => string | null {
+    const slugSet = new Set(cards.map((c) => c.slug));
+    // Build basename → slugs index for fallback
+    const basenameIndex = new Map<string, string[]>();
+    for (const card of cards) {
+      const parts = card.slug.split("/");
+      const base = parts[parts.length - 1];
+      if (!basenameIndex.has(base)) {
+        basenameIndex.set(base, []);
+      }
+      basenameIndex.get(base)!.push(card.slug);
+    }
+    // Build case-insensitive index (lowercase → original slug)
+    const lowerIndex = new Map<string, string[]>();
+    for (const slug of slugSet) {
+      const lower = slug.toLowerCase();
+      if (!lowerIndex.has(lower)) {
+        lowerIndex.set(lower, []);
+      }
+      lowerIndex.get(lower)!.push(slug);
+    }
+    // Case-insensitive basename index
+    const lowerBasenameIndex = new Map<string, string[]>();
+    for (const [base, slugs] of basenameIndex) {
+      const lower = base.toLowerCase();
+      if (!lowerBasenameIndex.has(lower)) {
+        lowerBasenameIndex.set(lower, []);
+      }
+      lowerBasenameIndex.get(lower)!.push(...slugs);
+    }
+
+    return (link: string): string | null => {
+      const normalised = link.replace(/\\/g, "/");
+      // Exact match
+      if (slugSet.has(normalised)) return normalised;
+      // Basename fallback (unambiguous only)
+      if (!normalised.includes("/")) {
+        const matches = basenameIndex.get(normalised);
+        if (matches && matches.length === 1) return matches[0];
+      }
+      // Case-insensitive fallback
+      const lower = normalised.toLowerCase();
+      const ciMatches = lowerIndex.get(lower);
+      if (ciMatches && ciMatches.length === 1) return ciMatches[0];
+      // Case-insensitive basename fallback
+      if (!normalised.includes("/")) {
+        const ciBaseMatches = lowerBasenameIndex.get(lower);
+        if (ciBaseMatches && ciBaseMatches.length === 1) return ciBaseMatches[0];
+      }
+      return null;
+    };
+  }
+
   async readCard(slug: string): Promise<string> {
     const path = await this.resolve(slug);
     if (!path) throw new Error(`Card not found: ${slug}`);

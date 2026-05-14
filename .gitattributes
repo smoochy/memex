@@ -1,0 +1,3 @@
+# Mark generated files so GitHub auto-collapses them in PR diffs
+dist/** linguist-generated
+dist/**/*.map linguist-generated

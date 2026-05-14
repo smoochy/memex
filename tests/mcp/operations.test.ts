@@ -108,6 +108,36 @@ describe("High-level operations", () => {
     expect(text).toContain("b");
   });
 
+  it("memex_recall truncates large index and shows summary", async () => {
+    let indexBody = "---\ntitle: Keyword Index\ncreated: 2026-01-01\nsource: organize\n---\n";
+    indexBody += "## Section A\n";
+    for (let i = 0; i < 100; i++) {
+      indexBody += `- [[card-a-${i}]] — description of card a ${i}\n`;
+    }
+    indexBody += "## Section B\n";
+    for (let i = 0; i < 100; i++) {
+      indexBody += `- [[card-b-${i}]] — description of card b ${i}\n`;
+    }
+    await setup({ index: indexBody });
+    const result = await client.callTool({ name: "memex_recall", arguments: {} });
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("Index summary");
+    expect(text).toContain("Section A");
+    expect(text).toContain("Section B");
+    expect(text).toContain("entries");
+    expect(text).toContain("memex search");
+    expect(text.length).toBeLessThan(indexBody.length);
+  });
+
+  it("memex_recall returns small index in full", async () => {
+    const smallIndex = "---\ntitle: Keyword Index\ncreated: 2026-01-01\nsource: organize\n---\n## Topic\n- [[card-a]] — desc";
+    await setup({ index: smallIndex, "card-a": "---\ntitle: A\n---\ncontent" });
+    const result = await client.callTool({ name: "memex_recall", arguments: {} });
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).not.toContain("Index summary");
+    expect(text).toContain("[[card-a]]");
+  });
+
   it("has all expected high-level tools", async () => {
     await setup();
     const { tools } = await client.listTools();

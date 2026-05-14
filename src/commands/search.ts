@@ -36,6 +36,7 @@ interface SearchOptions {
 interface SearchResult {
   output: string;
   exitCode: number;
+  totalCount?: number;
 }
 
 export async function searchCommand(store: CardStore, query: string | undefined, options: SearchOptions = {}): Promise<SearchResult> {
@@ -80,17 +81,24 @@ export async function searchCommand(store: CardStore, query: string | undefined,
     return semanticSearch(query, allCards, shouldPrefix, options);
   }
 
-  // No query: list all cards
+  // No query: list all cards (with limit)
   if (!query) {
+    const rawLimit = options.limit ?? DEFAULT_LIMIT;
+    const limit = rawLimit < 0 ? DEFAULT_LIMIT : rawLimit;
+    const toProcess = limit > 0 ? allCards.slice(0, limit) : [];
     const items = await Promise.all(
-      allCards.map(async (c) => {
+      toProcess.map(async (c) => {
         const raw = await c.store.readCard(c.slug);
         const { data } = parseFrontmatter(raw);
         const prefixedSlug = shouldPrefix ? `${c.dirPrefix}/${c.slug}` : c.slug;
         return { slug: prefixedSlug, title: String(data.title || c.slug) };
       })
     );
-    return { output: formatCardList(items), exitCode: 0 };
+    let output = formatCardList(items);
+    if (allCards.length > toProcess.length) {
+      output += `\n\n(${toProcess.length} of ${allCards.length} cards shown. Use \`memex search <keyword>\` to narrow results.)`;
+    }
+    return { output, exitCode: 0, totalCount: allCards.length };
   }
 
   // With query: keyword search body only (strip frontmatter before matching)
@@ -250,7 +258,7 @@ async function keywordSearch(
     );
   }
 
-  return { output: results.join(options.compact ? "\n" : "\n\n"), exitCode: 0 };
+  return { output: results.join(options.compact ? "\n" : "\n\n"), exitCode: 0, totalCount: matchedCards.length };
 }
 
 // --- Semantic search ---
@@ -275,6 +283,11 @@ async function semanticSearch(
         type: options.config?.embeddingProvider,
         openaiApiKey: options.config?.openaiApiKey,
         openaiBaseUrl: options.config?.openaiBaseUrl,
+        openaiModel: options.config?.embeddingModel,
+        azureOpenaiApiKey: options.config?.azureOpenaiApiKey,
+        azureOpenaiApiKeyPath: options.config?.azureOpenaiApiKeyPath,
+        azureOpenaiEndpoint: options.config?.azureOpenaiEndpoint,
+        azureOpenaiDeployment: options.config?.embeddingModel,
         localModelPath: options.config?.localModelPath,
         ollamaModel: options.config?.ollamaModel,
         ollamaBaseUrl: options.config?.ollamaBaseUrl,
@@ -352,7 +365,7 @@ async function semanticSearch(
     );
   }
 
-  return { output: results.join(options.compact ? "\n" : "\n\n"), exitCode: 0 };
+  return { output: results.join(options.compact ? "\n" : "\n\n"), exitCode: 0, totalCount: scored.length };
 }
 
 /** Compute keyword match counts per card slug (same logic as keyword search). */
