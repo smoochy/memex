@@ -101,6 +101,7 @@ Note: You do NOT need to include `modified` — the CLI auto-sets it on write.
 - **Slug**: English kebab-case, descriptive. e.g., `jwt-revocation-blacklist-pattern`
 - **Don't over-record**: Only save insights that would change how you approach a similar task in the future.
 - **Preserve frontmatter on update**: When updating an existing card, preserve its original frontmatter fields (title, created). Only append to the body. `source` is auto-managed by the MCP server.
+- **No raw secrets**: Never write actual secrets, credentials, tokens, or exact secret file contents into memory. Use redacted examples and abstract descriptions instead.
 
 ## External Source Cards (Flomo, etc.)
 

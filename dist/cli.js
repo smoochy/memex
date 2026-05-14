@@ -7748,10 +7748,156 @@ Then resolve conflicts and run \`memex sync --init\` again.`
   }
 });
 
+// src/lib/sensitive-input.ts
+function prepareMemexInput(text, context) {
+  const warnings = [];
+  if (context === "query" && TOKENIZED_URL_RE.test(text)) {
+    resetRegexes();
+    return reject();
+  }
+  resetRegexes();
+  let prepared = text;
+  if (context === "content") {
+    const masked = maskTokenizedUrls(prepared);
+    if (masked !== prepared) {
+      prepared = masked;
+      warnings.push(TOKENIZED_URL_WARNING);
+    }
+  }
+  if (hasRejectSecret(prepared)) return reject();
+  if (context === "query" && SECRET_LOCATOR_RE.test(prepared)) {
+    warnings.push(SECRET_LOCATOR_WARNING);
+  }
+  return { ok: true, text: prepared, warnings };
+}
+function formatWarnings(warnings) {
+  return warnings.map((w) => `Warning: ${w}`).join("\n");
+}
+function redactSensitiveText(text) {
+  let redacted = maskTokenizedUrls(text);
+  redacted = maskFlomoWebhookUrls(redacted);
+  redacted = redacted.replace(PEM_PRIVATE_KEY_BLOCK_RE, "<PRIVATE_KEY_REDACTED>");
+  redacted = redacted.replace(BEARER_RE, "Authorization: Bearer <redacted>");
+  for (const re of KNOWN_SECRET_RES) {
+    redacted = redacted.replace(re, "<redacted>");
+  }
+  resetRegexes();
+  return redacted;
+}
+function maskFlomoWebhookUrl(url2) {
+  return maskFlomoWebhookUrls(url2);
+}
+function reject() {
+  return { ok: false, text: "", warnings: [], error: SECRET_REJECT_MESSAGE };
+}
+function hasRejectSecret(text) {
+  if (PEM_PRIVATE_KEY_BLOCK_RE.test(text)) return true;
+  resetRegexes();
+  if (hasKnownSecret(text)) return true;
+  if (hasBearerSecret(text)) return true;
+  return hasEnvSecretAssignment(text);
+}
+function hasKnownSecret(text) {
+  for (const re of KNOWN_SECRET_RES) {
+    if (re.test(text)) {
+      resetRegexes();
+      return true;
+    }
+  }
+  resetRegexes();
+  return false;
+}
+function hasBearerSecret(text) {
+  for (const match of text.matchAll(BEARER_RE)) {
+    const value = match[1] ?? "";
+    if (JWT_RE.test(value) || looksHighEntropySecret(value)) {
+      resetRegexes();
+      return true;
+    }
+  }
+  resetRegexes();
+  return false;
+}
+function hasEnvSecretAssignment(text) {
+  for (const match of text.matchAll(ENV_ASSIGNMENT_RE)) {
+    const rawValue = stripEnvValue(match[2] ?? "");
+    if (hasKnownSecret(rawValue) || hasBearerSecret(rawValue) || looksHighEntropySecret(rawValue)) {
+      return true;
+    }
+  }
+  resetRegexes();
+  return false;
+}
+function stripEnvValue(value) {
+  return value.trim().replace(/^['"]|['"]$/g, "").trim();
+}
+function looksHighEntropySecret(value) {
+  const normalized = value.replace(/^Bearer\s+/i, "").trim();
+  if (normalized.length < 24) return false;
+  if (/^(?:x+|\*+|example|placeholder|your[-_]?token|token|secret)$/i.test(normalized)) return false;
+  if (!/[A-Za-z]/.test(normalized) || !/\d/.test(normalized)) return false;
+  return shannonEntropy(normalized) >= 3.4;
+}
+function shannonEntropy(value) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const char of value) counts.set(char, (counts.get(char) ?? 0) + 1);
+  let entropy = 0;
+  for (const count of counts.values()) {
+    const p = count / value.length;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+function maskTokenizedUrls(text) {
+  return text.replace(TOKENIZED_URL_RE, (_match, scheme, userinfo, rest) => {
+    const maskedUserinfo = userinfo.includes(":") ? `${userinfo.split(":")[0]}:<redacted>@` : "<redacted>@";
+    return `${scheme}${maskedUserinfo}${rest}`;
+  });
+}
+function maskFlomoWebhookUrls(text) {
+  return text.replace(FLOMO_WEBHOOK_RE, () => {
+    return `https://flomoapp.com/iwh/<redacted>/`;
+  });
+}
+function resetRegexes() {
+  TOKENIZED_URL_RE.lastIndex = 0;
+  FLOMO_WEBHOOK_RE.lastIndex = 0;
+  PEM_PRIVATE_KEY_BLOCK_RE.lastIndex = 0;
+  JWT_RE.lastIndex = 0;
+  BEARER_RE.lastIndex = 0;
+  ENV_ASSIGNMENT_RE.lastIndex = 0;
+  for (const re of KNOWN_SECRET_RES) re.lastIndex = 0;
+}
+var SECRET_REJECT_MESSAGE, TOKENIZED_URL_WARNING, SECRET_LOCATOR_WARNING, TOKENIZED_URL_RE, FLOMO_WEBHOOK_RE, PEM_PRIVATE_KEY_BLOCK_RE, JWT_RE, BEARER_RE, ENV_ASSIGNMENT_RE, SECRET_LOCATOR_RE, KNOWN_SECRET_RES;
+var init_sensitive_input = __esm({
+  "src/lib/sensitive-input.ts"() {
+    "use strict";
+    SECRET_REJECT_MESSAGE = "Sensitive input rejected: remove actual secrets, credentials, or token values before using memex.";
+    TOKENIZED_URL_WARNING = "Tokenized URL credentials were redacted before saving.";
+    SECRET_LOCATOR_WARNING = "Query mentions a local credential path; prefer abstract search terms.";
+    TOKENIZED_URL_RE = /\b([a-z][a-z0-9+.-]*:\/\/)([^\s/@:]+(?::[^\s/@]+)?@)([^\s<>'")]+)/gi;
+    FLOMO_WEBHOOK_RE = /https:\/\/flomoapp\.com\/iwh\/([^\s<>'")]+)/gi;
+    PEM_PRIVATE_KEY_BLOCK_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----/g;
+    JWT_RE = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
+    BEARER_RE = /\bAuthorization\s*:\s*Bearer\s+([^\s<>'")]{30,})/gi;
+    ENV_ASSIGNMENT_RE = /^\s*(?:export\s+)?([A-Z0-9_]*(?:API|TOKEN|SECRET|PASSWORD|PRIVATE|CREDENTIAL|AUTH|KEY)[A-Z0-9_]*)\s*=\s*([^\n#]+)/gim;
+    SECRET_LOCATOR_RE = /(^|[\s"'`(])(?:~\/\.(?:claude|aws|config|ssh)(?:\/[^\s"'`)]+)?|\.env(?:\.[A-Za-z0-9_-]+)?)(?=$|[\s"'`)])/i;
+    KNOWN_SECRET_RES = [
+      /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b/g,
+      /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{30,}\b/g,
+      /\bglpat-[A-Za-z0-9_-]{20,}\b/g,
+      /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g,
+      JWT_RE
+    ];
+  }
+});
+
 // src/commands/write.ts
 import { dirname as dirname4 } from "node:path";
 async function writeCommand(store, slug, input) {
-  const { data, content } = parseFrontmatter(input);
+  const safety = prepareMemexInput(input, "content");
+  if (!safety.ok) return { success: false, error: safety.error };
+  const { data, content } = parseFrontmatter(safety.text);
   const missing = REQUIRED_FIELDS.filter((f) => !(f in data));
   if (missing.length > 0) {
     return { success: false, error: `Missing required fields: ${missing.join(", ")}` };
@@ -7764,7 +7910,7 @@ async function writeCommand(store, slug, input) {
   const output = stringifyFrontmatter(content, data);
   await store.writeCard(slug, output);
   await autoSync(dirname4(store.cardsDir));
-  return { success: true };
+  return { success: true, warnings: safety.warnings };
 }
 var REQUIRED_FIELDS;
 var init_write = __esm({
@@ -7772,6 +7918,7 @@ var init_write = __esm({
     "use strict";
     init_parser();
     init_sync();
+    init_sensitive_input();
     REQUIRED_FIELDS = ["title", "created", "source"];
   }
 });
@@ -8114,7 +8261,7 @@ var init_embeddings = __esm({
         return results;
       }
       requestEmbeddings(texts) {
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve3, reject2) => {
           const body = JSON.stringify({
             model: this.model,
             input: texts
@@ -8143,7 +8290,7 @@ var init_embeddings = __esm({
                 try {
                   const parsed = JSON.parse(data);
                   if (parsed.error) {
-                    reject(
+                    reject2(
                       new Error(`OpenAI API error: ${parsed.error.message}`)
                     );
                     return;
@@ -8151,12 +8298,12 @@ var init_embeddings = __esm({
                   const sorted = parsed.data.sort((a, b) => a.index - b.index);
                   resolve3(sorted.map((d) => d.embedding));
                 } catch (e) {
-                  reject(new Error(`Failed to parse OpenAI response: ${e}`));
+                  reject2(new Error(`Failed to parse OpenAI response: ${e}`));
                 }
               });
             }
           );
-          req.on("error", reject);
+          req.on("error", reject2);
           req.write(body);
           req.end();
         });
@@ -8260,7 +8407,7 @@ var init_embeddings = __esm({
         const url2 = new URL("/api/embed", this.baseUrl);
         const isHttps = url2.protocol === "https:";
         const requestFn = isHttps ? httpsRequest : httpRequest;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve3, reject2) => {
           const req = requestFn(
             {
               hostname: url2.hostname,
@@ -8281,11 +8428,11 @@ var init_embeddings = __esm({
                 try {
                   const parsed = JSON.parse(data);
                   if (parsed.error) {
-                    reject(new Error(`Ollama API error: ${parsed.error}`));
+                    reject2(new Error(`Ollama API error: ${parsed.error}`));
                     return;
                   }
                   if (!parsed.embeddings || !Array.isArray(parsed.embeddings)) {
-                    reject(
+                    reject2(
                       new Error(
                         "Unexpected Ollama response: missing embeddings array"
                       )
@@ -8298,13 +8445,13 @@ var init_embeddings = __esm({
                     )
                   );
                 } catch (e) {
-                  reject(new Error(`Failed to parse Ollama response: ${e}`));
+                  reject2(new Error(`Failed to parse Ollama response: ${e}`));
                 }
               });
             }
           );
           req.on("error", (err) => {
-            reject(
+            reject2(
               new Error(
                 `Cannot connect to Ollama at ${this.baseUrl}: ${err.message}. Is Ollama running? Start it with: ollama serve`
               )
@@ -8373,6 +8520,9 @@ var init_embeddings = __esm({
 // src/commands/search.ts
 import { join as join5 } from "node:path";
 async function searchCommand(store, query, options2 = {}) {
+  const safety = query ? prepareMemexInput(query, "query") : { ok: true, text: query ?? "", warnings: [] };
+  if (!safety.ok) return { output: safety.error ?? "Sensitive input rejected.", exitCode: 1 };
+  query = safety.text;
   const storesToSearch = [
     { store, dirPrefix: "cards" }
   ];
@@ -8393,13 +8543,13 @@ async function searchCommand(store, query, options2 = {}) {
       allCards.push({ slug: card.slug, store: s, dirPrefix });
     }
   }
-  if (allCards.length === 0) return { output: "", exitCode: 0 };
+  if (allCards.length === 0) return withWarnings({ output: "", exitCode: 0 }, safety.warnings);
   if (options2.filter) {
     allCards = await filterByManifest(allCards, options2.filter);
-    if (allCards.length === 0) return { output: "", exitCode: 0 };
+    if (allCards.length === 0) return withWarnings({ output: "", exitCode: 0 }, safety.warnings);
   }
   if (query && options2.semantic) {
-    return semanticSearch(query, allCards, shouldPrefix, options2);
+    return withWarnings(await semanticSearch(query, allCards, shouldPrefix, options2), safety.warnings);
   }
   if (!query) {
     const rawLimit = options2.limit ?? DEFAULT_LIMIT;
@@ -8419,9 +8569,20 @@ async function searchCommand(store, query, options2 = {}) {
 
 (${toProcess.length} of ${allCards.length} cards shown. Use \`memex search <keyword>\` to narrow results.)`;
     }
-    return { output, exitCode: 0, totalCount: allCards.length };
+    return withWarnings({ output, exitCode: 0, totalCount: allCards.length }, safety.warnings);
   }
-  return keywordSearch(query, allCards, shouldPrefix, options2);
+  return withWarnings(await keywordSearch(query, allCards, shouldPrefix, options2), safety.warnings);
+}
+function withWarnings(result, warnings) {
+  if (warnings.length === 0) return result;
+  const warningText = formatWarnings(warnings);
+  return {
+    ...result,
+    warnings,
+    output: result.output ? `${warningText}
+
+${result.output}` : warningText
+  };
 }
 async function filterByManifest(allCards, filter) {
   const results = [];
@@ -8636,6 +8797,7 @@ var init_search = __esm({
     init_parser();
     init_formatter();
     init_embeddings();
+    init_sensitive_input();
     DEFAULT_LIMIT = 10;
   }
 });
@@ -8990,7 +9152,7 @@ async function flomoConfigCommand(memexHome, opts) {
   }
   const config2 = await readFlomoConfig(memexHome);
   if (config2.webhookUrl) {
-    return { output: `Flomo webhook URL: ${config2.webhookUrl}`, exitCode: 0 };
+    return { output: `Flomo webhook URL: ${maskFlomoWebhookUrl(config2.webhookUrl)}`, exitCode: 0 };
   }
   return { output: "Flomo webhook URL: (not configured)\nSet with: memex flomo config --set-webhook <url>", exitCode: 0 };
 }
@@ -9238,6 +9400,7 @@ var init_flomo = __esm({
     "use strict";
     init_parser();
     init_sync();
+    init_sensitive_input();
   }
 });
 
@@ -31454,9 +31617,9 @@ var init_protocol = __esm({
        */
       request(request, resultSchema, options2) {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options2 ?? {};
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve3, reject2) => {
           const earlyReject = (error48) => {
-            reject(error48);
+            reject2(error48);
           };
           if (!this._transport) {
             earlyReject(new Error("Not connected"));
@@ -31518,24 +31681,24 @@ var init_protocol = __esm({
               }
             }, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error49) => this._onerror(new Error(`Failed to send cancellation: ${error49}`)));
             const error48 = reason instanceof McpError ? reason : new McpError(ErrorCode.RequestTimeout, String(reason));
-            reject(error48);
+            reject2(error48);
           };
           this._responseHandlers.set(messageId, (response) => {
             if (options2?.signal?.aborted) {
               return;
             }
             if (response instanceof Error) {
-              return reject(response);
+              return reject2(response);
             }
             try {
               const parseResult = safeParse2(resultSchema, response.result);
               if (!parseResult.success) {
-                reject(parseResult.error);
+                reject2(parseResult.error);
               } else {
                 resolve3(parseResult.data);
               }
             } catch (error48) {
-              reject(error48);
+              reject2(error48);
             }
           });
           options2?.signal?.addEventListener("abort", () => {
@@ -31561,12 +31724,12 @@ var init_protocol = __esm({
               timestamp: Date.now()
             }).catch((error48) => {
               this._cleanupTimeout(messageId);
-              reject(error48);
+              reject2(error48);
             });
           } else {
             this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch((error48) => {
               this._cleanupTimeout(messageId);
-              reject(error48);
+              reject2(error48);
             });
           }
         });
@@ -31793,15 +31956,15 @@ var init_protocol = __esm({
           }
         } catch {
         }
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve3, reject2) => {
           if (signal.aborted) {
-            reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
+            reject2(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
             return;
           }
           const timeoutId = setTimeout(resolve3, interval);
           signal.addEventListener("abort", () => {
             clearTimeout(timeoutId);
-            reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
+            reject2(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
           }, { once: true });
         });
       }
@@ -40308,10 +40471,13 @@ var init_hooks = __esm({
 // src/mcp/operations.ts
 function registerOperations(server, store, hooks, home, getClientName) {
   const INDEX_CHAR_LIMIT = 4e3;
+  function textResult(text, isError = false) {
+    return { content: [{ type: "text", text }], isError };
+  }
   server.registerTool("memex_recall", {
-    description: "IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory \u2014 knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. Optionally search by query. Without calling this first, you will miss context from prior sessions and repeat past mistakes.",
+    description: "IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory \u2014 knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. USAGE: Call with NO query first to get the index. Only use query when you need to find specific cards \u2014 pass 1-3 short keywords, NOT sentences or task summaries. Keyword search uses AND logic (every token must appear in the same card). For natural-language search, use memex_search with semantic=true instead. Never include actual secrets, credentials, tokens, or exact secret file contents in query.",
     inputSchema: external_exports3.object({
-      query: external_exports3.string().optional().describe("Optional search query to find specific cards"),
+      query: external_exports3.string().optional().describe("1-3 short keywords (AND logic \u2014 every token must appear). Do NOT pass sentences or task summaries. Omit for task-start recall. Examples: 'pptx migration', 'auth gotcha'. Do not include raw secrets."),
       category: external_exports3.string().optional().describe("Filter by frontmatter category"),
       tag: external_exports3.string().optional().describe("Filter by frontmatter tag"),
       author: external_exports3.string().optional().describe("Filter by frontmatter author/source"),
@@ -40323,7 +40489,7 @@ function registerOperations(server, store, hooks, home, getClientName) {
     const filter = category || tag || author || since || before ? { category, tag, author, since, before } : void 0;
     if (query) {
       const result = await searchCommand(store, query, { limit: 10, filter });
-      return { content: [{ type: "text", text: result.output || "No cards found." }] };
+      return textResult(result.output || "No cards found.", result.exitCode !== 0);
     }
     if (!filter) {
       const indexResult = await readCommand(store, "index");
@@ -40340,11 +40506,11 @@ function registerOperations(server, store, hooks, home, getClientName) {
     return { content: [{ type: "text", text: listResult.output || "No cards yet." }] };
   });
   server.registerTool("memex_retro", {
-    description: "IMPORTANT: Call this at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings \u2014 things that would be useful in future sessions (architecture decisions, gotchas, patterns discovered, bug root causes). Handles frontmatter, source tagging, and cross-device sync automatically.",
+    description: "IMPORTANT: Call this at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings \u2014 things that would be useful in future sessions (architecture decisions, gotchas, patterns discovered, bug root causes). Never save actual secrets, credentials, tokens, or exact secret file contents; use redacted examples instead. Handles frontmatter, source tagging, and cross-device sync automatically.",
     inputSchema: external_exports3.object({
       slug: external_exports3.string().describe("Card slug in kebab-case"),
       title: external_exports3.string().describe("Card title (keep short, \u226460 chars, noun phrase not full sentence)"),
-      body: external_exports3.string().describe("Card body in markdown with [[wikilinks]]"),
+      body: external_exports3.string().describe("Card body in markdown with [[wikilinks]]. Do not include raw secrets or credential values."),
       category: external_exports3.string().optional().describe("Category (e.g. frontend, architecture, devops, bugfix)")
     })
   }, async ({ slug, title, body, category }) => {
@@ -40359,12 +40525,15 @@ function registerOperations(server, store, hooks, home, getClientName) {
     const content = stringifyFrontmatter(body, data);
     const result = await writeCommand(store, slug, content);
     if (!result.success) {
-      return { content: [{ type: "text", text: result.error }], isError: true };
+      return textResult(result.error, true);
     }
     await hooks.run("post", "retro");
     const config2 = await readSyncConfig(home);
     const tip = !config2.remote ? "\n\nTip: To sync cards across devices, tell the user to run in terminal: npx @touchskyer/memex sync --init && npx @touchskyer/memex sync on" : "";
-    return { content: [{ type: "text", text: `Card '${slug}' saved.${tip}` }] };
+    const warningText = result.warnings?.length ? `
+
+${formatWarnings(result.warnings)}` : "";
+    return textResult(`Card '${slug}' saved.${warningText}${tip}`);
   });
   server.registerTool("memex_organize", {
     description: "Analyze the card network for maintenance. Returns link stats, orphans, hubs, unresolved conflicts, and recently modified cards paired with their neighbors for contradiction detection. Call this periodically to keep the knowledge graph healthy.",
@@ -40509,6 +40678,7 @@ var init_operations = __esm({
     init_parser();
     init_sync();
     init_flomo();
+    init_sensitive_input();
     init_zod();
   }
 });
@@ -40554,10 +40724,19 @@ function createMemexServer(store, home) {
     if (home) await autoFetch(home);
   };
   const MCP_MAX_RESULTS = 50;
+  function textResult(text, isError = false) {
+    return { content: [{ type: "text", text }], isError };
+  }
+  function writeSuccess(slug, warnings) {
+    const warningText = warnings?.length ? `
+
+${formatWarnings(warnings)}` : "";
+    return textResult(`Card '${slug}' written successfully.${warningText}`);
+  }
   server.registerTool("memex_search", {
-    description: "Low-level search. Prefer memex_recall for task-start workflows.",
+    description: "Low-level search. Prefer memex_recall for task-start workflows. Never include actual secrets, credentials, tokens, or exact secret file contents in query; use abstract descriptions instead.",
     inputSchema: external_exports3.object({
-      query: external_exports3.string().optional().describe("Search keyword. Omit to list all cards."),
+      query: external_exports3.string().optional().describe("Search keyword. Omit to list all cards. Do not include raw secrets or credential values."),
       limit: external_exports3.number().optional().describe(`Max results (default 10, max ${MCP_MAX_RESULTS})`),
       semantic: external_exports3.boolean().optional().describe("Use embedding-based semantic search")
     })
@@ -40565,7 +40744,7 @@ function createMemexServer(store, home) {
     const config2 = home ? await readConfig(home) : void 0;
     const clampedLimit = Math.min(limit ?? 10, MCP_MAX_RESULTS);
     const result = await searchCommand(store, query, { limit: clampedLimit, semantic, config: config2, memexHome: home });
-    return { content: [{ type: "text", text: result.output || "No cards found." }] };
+    return textResult(result.output || "No cards found.", result.exitCode !== 0);
   });
   server.registerTool("memex_read", {
     description: "Low-level read. Use after memex_recall to drill into specific cards.",
@@ -40580,10 +40759,10 @@ function createMemexServer(store, home) {
     return { content: [{ type: "text", text: result.content }] };
   });
   server.registerTool("memex_write", {
-    description: "Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically).",
+    description: "Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically). Never write actual secrets, credentials, tokens, or exact secret file contents; use redacted examples instead.",
     inputSchema: external_exports3.object({
       slug: external_exports3.string().describe("Card slug in kebab-case (e.g. 'my-insight')"),
-      content: external_exports3.string().describe("Full card content: YAML frontmatter + markdown body. Title must be \u226460 chars, noun phrase not full sentence."),
+      content: external_exports3.string().describe("Full card content: YAML frontmatter + markdown body. Title must be \u226460 chars, noun phrase not full sentence. Do not include raw secrets or credential values."),
       category: external_exports3.string().optional().describe("Card category (e.g. 'frontend', 'architecture', 'devops', 'bugfix')")
     })
   }, async ({ slug, content, category }) => {
@@ -40593,9 +40772,9 @@ function createMemexServer(store, home) {
     const enrichedContent = stringifyFrontmatter(body, data);
     const result = await writeCommand(store, slug, enrichedContent);
     if (!result.success) {
-      return { content: [{ type: "text", text: result.error }], isError: true };
+      return textResult(result.error, true);
     }
-    return { content: [{ type: "text", text: `Card '${slug}' written successfully.` }] };
+    return writeSuccess(slug, result.warnings);
   });
   server.registerTool("memex_links", {
     description: "Low-level link stats. Prefer memex_organize for maintenance workflows.",
@@ -40649,6 +40828,7 @@ var init_server3 = __esm({
     init_hooks();
     init_sync();
     init_operations();
+    init_sensitive_input();
     init_zod();
     __dirname2 = dirname9(fileURLToPath2(import.meta.url));
     pkg = readPackageJson(__dirname2);
@@ -41030,6 +41210,7 @@ window.createShareCard = createShareCard;
 
 // src/commands/sync.ts
 init_sync();
+init_sensitive_input();
 async function syncCommand(home, opts) {
   const adapter = new GitAdapter(home);
   if (opts.init) {
@@ -41037,12 +41218,12 @@ async function syncCommand(home, opts) {
       const url2 = await adapter.init(opts.remote);
       return {
         success: true,
-        output: `Sync initialized with ${url2}
+        output: `Sync initialized with ${redactSensitiveText(url2)}
 
 Tip: Run \`memex sync on\` to auto-sync after every write.`
       };
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: redactSensitiveText(err.message) };
     }
   }
   if (opts.action === "push" || opts.action === "pull") {
@@ -41057,7 +41238,7 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
     return {
       success: result2.success,
       output: result2.success ? result2.message : void 0,
-      error: result2.success ? void 0 : result2.message
+      error: result2.success ? void 0 : redactSensitiveText(result2.message)
     };
   }
   if (opts.auto !== void 0) {
@@ -41081,7 +41262,7 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
       };
     }
     const lines = [
-      `remote: ${status.remote}`,
+      `remote: ${redactSensitiveText(status.remote ?? "")}`,
       `adapter: ${status.adapter}`,
       `auto: ${status.auto ? "on" : "off"}`,
       `last sync: ${status.lastSync || "never"}`
@@ -41098,7 +41279,7 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
       return Promise.race([
         execFile3(command, args),
         new Promise(
-          (_, reject) => setTimeout(() => reject(new Error(`Command timeout: ${command}`)), timeoutMs)
+          (_, reject2) => setTimeout(() => reject2(new Error(`Command timeout: ${command}`)), timeoutMs)
         )
       ]);
     };
@@ -41117,7 +41298,7 @@ Tip: Run \`memex sync on\` to auto-sync after every write.`
         ], 5e3);
         hint = `
 
-Detected existing repo: ${repoUrl.trim()}
+Detected existing repo: ${redactSensitiveText(repoUrl.trim())}
 Run: memex sync --init`;
       } catch {
         hint = "\n\nNo existing memex-cards repo found. Run: memex sync --init\n(This will create a private GitHub repo automatically.)";
@@ -41134,7 +41315,7 @@ Run: memex sync --init`;
   return {
     success: result.success,
     output: result.success ? result.message : void 0,
-    error: result.success ? void 0 : result.message
+    error: result.success ? void 0 : redactSensitiveText(result.message)
   };
 }
 
@@ -41643,7 +41824,10 @@ program2.command("search [query]").description("Full-text search cards (body onl
   const store = await getStore({ nested: opts.nested });
   const filter = opts.category || opts.tag || opts.author || opts.since || opts.before ? { category: opts.category, tag: opts.tag, author: opts.author, since: opts.since, before: opts.before } : void 0;
   const result = await searchCommand(store, query, { limit: parseInt(opts.limit), all: opts.all, config: config2, memexHome: home, semantic: opts.semantic, compact: opts.compact, filter });
-  if (result.output) process.stdout.write(result.output + "\n");
+  if (result.output) {
+    const stream = result.exitCode === 0 ? process.stdout : process.stderr;
+    stream.write(result.output + "\n");
+  }
   exit(result.exitCode);
 });
 program2.command("read <slug>").description("Read a card's full content").option("--nested", "Use nested (path-preserving) slugs for this command").action(async (slug, opts) => {
@@ -41663,6 +41847,9 @@ program2.command("write <slug>").description("Write a card (content via stdin)")
   if (!result.success) {
     process.stderr.write(result.error + "\n");
     exit(1);
+  }
+  if (result.warnings?.length) {
+    process.stderr.write(result.warnings.map((w) => `Warning: ${w}`).join("\n") + "\n");
   }
 });
 program2.command("links [slug]").description("Show link graph stats or specific card links").option("--filter <type>", "Filter cards: orphan or hub").option("--stats", "Show summary statistics instead of card list").option("--json", "Output results as JSON for programmatic use").action(async (slug, cmdOpts) => {

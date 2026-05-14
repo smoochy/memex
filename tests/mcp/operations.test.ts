@@ -67,6 +67,30 @@ describe("High-level operations", () => {
     expect(text).toContain("auth-card");
   });
 
+  it("memex_recall rejects actual token queries", async () => {
+    await setup();
+    const result = await client.callTool({
+      name: "memex_recall",
+      arguments: { query: "sk-proj-abc123DEF456ghi789JKL012mno345PQR" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("Sensitive input rejected");
+    expect(text).not.toContain("sk-proj");
+  });
+
+  it("memex_recall warns but allows credential path queries", async () => {
+    await setup();
+    const result = await client.callTool({
+      name: "memex_recall",
+      arguments: { query: "gitee auth workflow ~/.claude/.env" },
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("Warning:");
+    expect(text).toContain("credential path");
+  });
+
   it("memex_retro writes a card with auto-source", async () => {
     await setup();
     const result = await client.callTool({
@@ -85,6 +109,21 @@ describe("High-level operations", () => {
     expect(text).toContain("My Insight");
     expect(text).toContain("architecture");
     expect(text).toContain("test-client");
+  });
+
+  it("memex_retro rejects actual token values", async () => {
+    await setup();
+    const result = await client.callTool({
+      name: "memex_retro",
+      arguments: {
+        slug: "secret",
+        title: "Secret",
+        body: "sk-proj-abc123DEF456ghi789JKL012mno345PQR",
+      },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).not.toContain("sk-proj");
   });
 
   it("memex_retro returns upsell when sync not configured", async () => {

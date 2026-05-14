@@ -10,6 +10,7 @@ import {
   type EmbeddingProvider,
 } from "../lib/embeddings.js";
 import { join } from "node:path";
+import { formatWarnings, prepareMemexInput, type SensitiveInputResult } from "../lib/sensitive-input.js";
 
 const DEFAULT_LIMIT = 10;
 
@@ -37,9 +38,14 @@ interface SearchResult {
   output: string;
   exitCode: number;
   totalCount?: number;
+  warnings?: string[];
 }
 
 export async function searchCommand(store: CardStore, query: string | undefined, options: SearchOptions = {}): Promise<SearchResult> {
+  const safety: SensitiveInputResult = query ? prepareMemexInput(query, "query") : { ok: true, text: query ?? "", warnings: [] };
+  if (!safety.ok) return { output: safety.error ?? "Sensitive input rejected.", exitCode: 1 };
+  query = safety.text;
+
   // Gather all stores to search
   const storesToSearch: Array<{ store: CardStore; dirPrefix: string }> = [
     { store, dirPrefix: "cards" }
@@ -68,17 +74,17 @@ export async function searchCommand(store: CardStore, query: string | undefined,
     }
   }
 
-  if (allCards.length === 0) return { output: "", exitCode: 0 };
+  if (allCards.length === 0) return withWarnings({ output: "", exitCode: 0 }, safety.warnings);
 
   // Apply manifest pre-filter
   if (options.filter) {
     allCards = await filterByManifest(allCards, options.filter);
-    if (allCards.length === 0) return { output: "", exitCode: 0 };
+    if (allCards.length === 0) return withWarnings({ output: "", exitCode: 0 }, safety.warnings);
   }
 
   // Semantic search path
   if (query && options.semantic) {
-    return semanticSearch(query, allCards, shouldPrefix, options);
+    return withWarnings(await semanticSearch(query, allCards, shouldPrefix, options), safety.warnings);
   }
 
   // No query: list all cards (with limit)
@@ -98,11 +104,21 @@ export async function searchCommand(store: CardStore, query: string | undefined,
     if (allCards.length > toProcess.length) {
       output += `\n\n(${toProcess.length} of ${allCards.length} cards shown. Use \`memex search <keyword>\` to narrow results.)`;
     }
-    return { output, exitCode: 0, totalCount: allCards.length };
+    return withWarnings({ output, exitCode: 0, totalCount: allCards.length }, safety.warnings);
   }
 
   // With query: keyword search body only (strip frontmatter before matching)
-  return keywordSearch(query, allCards, shouldPrefix, options);
+  return withWarnings(await keywordSearch(query, allCards, shouldPrefix, options), safety.warnings);
+}
+
+function withWarnings(result: SearchResult, warnings: string[]): SearchResult {
+  if (warnings.length === 0) return result;
+  const warningText = formatWarnings(warnings);
+  return {
+    ...result,
+    warnings,
+    output: result.output ? `${warningText}\n\n${result.output}` : warningText,
+  };
 }
 
 // --- Manifest pre-filter ---

@@ -122,4 +122,5 @@ When the organize skill creates new cards (e.g., splitting hubs), use `source: o
 - **Append only**: When adding links to existing cards, append to the end of the body. Never modify existing prose.
 - **Merge**: Read both cards, append source content to target card via `memex write`, then `memex archive` the source.
 - **Archive**: Use `memex archive <slug>` to move stale cards out of active search.
+- **No raw secrets**: Never search for or write actual secrets, credentials, tokens, or exact secret file contents. Use redacted examples and abstract descriptions instead.
 - **Be conservative**: When in doubt, leave cards alone. It's better to under-organize than to break useful connections.

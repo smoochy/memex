@@ -2,16 +2,21 @@ import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
 import { CardStore } from "../lib/store.js";
 import { autoSync } from "../lib/sync.js";
 import { dirname } from "node:path";
+import { prepareMemexInput } from "../lib/sensitive-input.js";
 
 const REQUIRED_FIELDS = ["title", "created", "source"];
 
 interface WriteResult {
   success: boolean;
   error?: string;
+  warnings?: string[];
 }
 
 export async function writeCommand(store: CardStore, slug: string, input: string): Promise<WriteResult> {
-  const { data, content } = parseFrontmatter(input);
+  const safety = prepareMemexInput(input, "content");
+  if (!safety.ok) return { success: false, error: safety.error };
+
+  const { data, content } = parseFrontmatter(safety.text);
 
   const missing = REQUIRED_FIELDS.filter((f) => !(f in data));
   if (missing.length > 0) {
@@ -28,5 +33,5 @@ export async function writeCommand(store: CardStore, slug: string, input: string
   const output = stringifyFrontmatter(content, data);
   await store.writeCard(slug, output);
   await autoSync(dirname(store.cardsDir));
-  return { success: true };
+  return { success: true, warnings: safety.warnings };
 }

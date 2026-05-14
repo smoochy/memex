@@ -79,6 +79,29 @@ describe("MCP server", () => {
     expect(text).not.toContain("beta");
   });
 
+  it("memex_search rejects actual token queries", async () => {
+    await setup();
+    const result = await client.callTool({
+      name: "memex_search",
+      arguments: { query: "sk-proj-abc123DEF456ghi789JKL012mno345PQR" },
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("Sensitive input rejected");
+    expect(text).not.toContain("sk-proj");
+  });
+
+  it("memex_search allows token architecture language", async () => {
+    await setup({
+      "auth": "---\ntitle: Auth\ncreated: 2026-01-01\nsource: retro\n---\nBearer token rotation",
+    });
+    const result = await client.callTool({
+      name: "memex_search",
+      arguments: { query: "Bearer token" },
+    });
+    expect(result.isError).toBeFalsy();
+  });
+
   it("memex_read returns card content", async () => {
     await setup({
       "my-card": "---\ntitle: My Card\ncreated: 2026-01-01\nsource: retro\n---\nCard body here",
@@ -104,6 +127,29 @@ describe("MCP server", () => {
     const readResult = await client.callTool({ name: "memex_read", arguments: { slug: "new-card" } });
     const text = (readResult.content as Array<{ text: string }>)[0].text;
     expect(text).toContain("New Card");
+  });
+
+  it("memex_write rejects actual token values", async () => {
+    await setup();
+    const content = "---\ntitle: Secret\ncreated: 2026-01-01\nsource: retro\n---\nsk-proj-abc123DEF456ghi789JKL012mno345PQR";
+    const result = await client.callTool({ name: "memex_write", arguments: { slug: "secret", content } });
+    expect(result.isError).toBe(true);
+    const text = (result.content as Array<{ text: string }>)[0].text;
+    expect(text).not.toContain("sk-proj");
+  });
+
+  it("memex_write masks tokenized URLs", async () => {
+    await setup();
+    const content = "---\ntitle: Remote\ncreated: 2026-01-01\nsource: retro\n---\nhttps://user:secret1234567890@github.com/org/repo";
+    const writeResult = await client.callTool({ name: "memex_write", arguments: { slug: "remote", content } });
+    expect(writeResult.isError).toBeFalsy();
+    const writeText = (writeResult.content as Array<{ text: string }>)[0].text;
+    expect(writeText).toContain("Warning:");
+
+    const readResult = await client.callTool({ name: "memex_read", arguments: { slug: "remote" } });
+    const text = (readResult.content as Array<{ text: string }>)[0].text;
+    expect(text).toContain("https://user:<redacted>@github.com/org/repo");
+    expect(text).not.toContain("secret1234567890");
   });
 
   it("memex_write returns error for invalid frontmatter", async () => {

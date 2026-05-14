@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { parseFrontmatter, stringifyFrontmatter } from "../lib/parser.js";
 import { CardStore } from "../lib/store.js";
 import { autoSync } from "../lib/sync.js";
+import { maskFlomoWebhookUrl } from "../lib/sensitive-input.js";
 
 // ── Config ──────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export async function flomoConfigCommand(
   // Default: show
   const config = await readFlomoConfig(memexHome);
   if (config.webhookUrl) {
-    return { output: `Flomo webhook URL: ${config.webhookUrl}`, exitCode: 0 };
+    return { output: `Flomo webhook URL: ${maskFlomoWebhookUrl(config.webhookUrl)}`, exitCode: 0 };
   }
   return { output: "Flomo webhook URL: (not configured)\nSet with: memex flomo config --set-webhook <url>", exitCode: 0 };
 }

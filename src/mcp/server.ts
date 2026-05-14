@@ -10,6 +10,7 @@ import { readConfig } from "../lib/config.js";
 import { HookRegistry } from "../lib/hooks.js";
 import { autoFetch, autoSync } from "../lib/sync.js";
 import { registerOperations } from "./operations.js";
+import { formatWarnings } from "../lib/sensitive-input.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,10 +58,19 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
 
   const MCP_MAX_RESULTS = 50;
 
+  function textResult(text: string, isError = false) {
+    return { content: [{ type: "text" as const, text }], isError };
+  }
+
+  function writeSuccess(slug: string, warnings?: string[]) {
+    const warningText = warnings?.length ? `\n\n${formatWarnings(warnings)}` : "";
+    return textResult(`Card '${slug}' written successfully.${warningText}`);
+  }
+
   server.registerTool("memex_search", {
-    description: "Low-level search. Prefer memex_recall for task-start workflows.",
+    description: "Low-level search. Prefer memex_recall for task-start workflows. Never include actual secrets, credentials, tokens, or exact secret file contents in query; use abstract descriptions instead.",
     inputSchema: z.object({
-      query: z.string().optional().describe("Search keyword. Omit to list all cards."),
+      query: z.string().optional().describe("Search keyword. Omit to list all cards. Do not include raw secrets or credential values."),
       limit: z.number().optional().describe(`Max results (default 10, max ${MCP_MAX_RESULTS})`),
       semantic: z.boolean().optional().describe("Use embedding-based semantic search"),
     }),
@@ -68,7 +78,7 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
     const config = home ? await readConfig(home) : undefined;
     const clampedLimit = Math.min(limit ?? 10, MCP_MAX_RESULTS);
     const result = await searchCommand(store, query, { limit: clampedLimit, semantic, config, memexHome: home });
-    return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
+    return textResult(result.output || "No cards found.", result.exitCode !== 0);
   });
 
   server.registerTool("memex_read", {
@@ -85,10 +95,10 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
   });
 
   server.registerTool("memex_write", {
-    description: "Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically).",
+    description: "Low-level write. Prefer memex_retro for task-end workflows (handles frontmatter and sync automatically). Never write actual secrets, credentials, tokens, or exact secret file contents; use redacted examples instead.",
     inputSchema: z.object({
       slug: z.string().describe("Card slug in kebab-case (e.g. 'my-insight')"),
-      content: z.string().describe("Full card content: YAML frontmatter + markdown body. Title must be ≤60 chars, noun phrase not full sentence."),
+      content: z.string().describe("Full card content: YAML frontmatter + markdown body. Title must be ≤60 chars, noun phrase not full sentence. Do not include raw secrets or credential values."),
       category: z.string().optional().describe("Card category (e.g. 'frontend', 'architecture', 'devops', 'bugfix')"),
     }),
   }, async ({ slug, content, category }) => {
@@ -99,9 +109,9 @@ export function createMemexServer(store: CardStore, home?: string): McpServer {
     const enrichedContent = stringifyFrontmatter(body, data);
     const result = await writeCommand(store, slug, enrichedContent);
     if (!result.success) {
-      return { content: [{ type: "text" as const, text: result.error! }], isError: true };
+      return textResult(result.error!, true);
     }
-    return { content: [{ type: "text" as const, text: `Card '${slug}' written successfully.` }] };
+    return writeSuccess(slug, result.warnings);
   });
 
   server.registerTool("memex_links", {

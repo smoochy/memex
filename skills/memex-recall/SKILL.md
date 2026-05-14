@@ -79,6 +79,7 @@ When you have enough context, summarize your findings and proceed with the task.
 
 - **max_hops: 3** — Do not follow links more than 3 levels deep
 - **max_cards_read: 20** — Do not read more than 20 cards in a single recall
+- **no raw secrets** — Never include actual secrets, credentials, tokens, or exact secret file contents in search queries. Use abstract descriptions instead (e.g. `gitee pr auth workflow`, not a token value or credential file contents).
 - If you hit either limit, stop and work with what you have
 
 ## Counting Rules

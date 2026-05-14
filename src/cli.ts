@@ -71,7 +71,10 @@ program
       ? { category: opts.category, tag: opts.tag, author: opts.author, since: opts.since, before: opts.before }
       : undefined;
     const result = await searchCommand(store, query, { limit: parseInt(opts.limit), all: opts.all, config, memexHome: home, semantic: opts.semantic, compact: opts.compact, filter });
-    if (result.output) process.stdout.write(result.output + "\n");
+    if (result.output) {
+      const stream = result.exitCode === 0 ? process.stdout : process.stderr;
+      stream.write(result.output + "\n");
+    }
     exit(result.exitCode);
   });
 
@@ -100,6 +103,9 @@ program
     if (!result.success) {
       process.stderr.write(result.error! + "\n");
       exit(1);
+    }
+    if (result.warnings?.length) {
+      process.stderr.write(result.warnings.map((w) => `Warning: ${w}`).join("\n") + "\n");
     }
   });
 

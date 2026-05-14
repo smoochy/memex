@@ -89,7 +89,8 @@ describe("flomoConfigCommand", () => {
     await writeFlomoConfig(testDir, "https://flomoapp.com/iwh/abc/123/");
     const result = await flomoConfigCommand(testDir, { show: true });
     expect(result.exitCode).toBe(0);
-    expect(result.output).toContain("https://flomoapp.com/iwh/abc/123/");
+    expect(result.output).toContain("https://flomoapp.com/iwh/<redacted>/");
+    expect(result.output).not.toContain("abc");
   });
 
   it("shows not configured when empty", async () => {

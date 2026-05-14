@@ -3,6 +3,7 @@ import {
   readSyncConfig,
   writeSyncConfig,
 } from "../lib/sync.js";
+import { redactSensitiveText } from "../lib/sensitive-input.js";
 
 interface SyncOptions {
   init?: boolean;
@@ -30,10 +31,10 @@ export async function syncCommand(
       return {
         success: true,
         output:
-          `Sync initialized with ${url}\n\nTip: Run \`memex sync on\` to auto-sync after every write.`,
+          `Sync initialized with ${redactSensitiveText(url)}\n\nTip: Run \`memex sync on\` to auto-sync after every write.`,
       };
     } catch (err) {
-      return { success: false, error: (err as Error).message };
+      return { success: false, error: redactSensitiveText((err as Error).message) };
     }
   }
 
@@ -49,7 +50,7 @@ export async function syncCommand(
     return {
       success: result.success,
       output: result.success ? result.message : undefined,
-      error: result.success ? undefined : result.message,
+      error: result.success ? undefined : redactSensitiveText(result.message),
     };
   }
 
@@ -75,7 +76,7 @@ export async function syncCommand(
       };
     }
     const lines = [
-      `remote: ${status.remote}`,
+      `remote: ${redactSensitiveText(status.remote ?? "")}`,
       `adapter: ${status.adapter}`,
       `auto: ${status.auto ? "on" : "off"}`,
       `last sync: ${status.lastSync || "never"}`,
@@ -111,7 +112,7 @@ export async function syncCommand(
         const { stdout: repoUrl } = await execWithTimeout("gh", [
           "repo", "view", `${user.trim()}/memex-cards`, "--json", "url", "-q", ".url",
         ], 5000);
-        hint = `\n\nDetected existing repo: ${repoUrl.trim()}\nRun: memex sync --init`;
+        hint = `\n\nDetected existing repo: ${redactSensitiveText(repoUrl.trim())}\nRun: memex sync --init`;
       } catch {
         hint = "\n\nNo existing memex-cards repo found. Run: memex sync --init\n(This will create a private GitHub repo automatically.)";
       }
@@ -128,6 +129,6 @@ export async function syncCommand(
   return {
     success: result.success,
     output: result.success ? result.message : undefined,
-    error: result.success ? undefined : result.message,
+    error: result.success ? undefined : redactSensitiveText(result.message),
   };
 }

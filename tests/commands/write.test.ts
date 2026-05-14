@@ -84,4 +84,37 @@ Body.`;
     // Should contain clean YYYY-MM-DD (unquoted, since no special chars)
     expect(written).toContain("created: 2026-03-18");
   });
+
+  it("rejects card content containing actual token values", async () => {
+    const input = `---
+title: Secret
+created: 2026-03-18
+source: retro
+---
+
+OPENAI_API_KEY=sk-proj-abc123DEF456ghi789JKL012mno345PQR`;
+
+    const result = await writeCommand(store, "secret", input);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Sensitive input rejected");
+    expect(result.error).not.toContain("sk-proj");
+  });
+
+  it("masks tokenized URLs before writing", async () => {
+    const input = `---
+title: Remote
+created: 2026-03-18
+source: retro
+---
+
+Remote: https://user:secret1234567890@github.com/org/repo.git`;
+
+    const result = await writeCommand(store, "remote", input);
+    expect(result.success).toBe(true);
+    expect(result.warnings).toHaveLength(1);
+
+    const written = await readFile(join(tmpDir, "cards", "remote.md"), "utf-8");
+    expect(written).toContain("https://user:<redacted>@github.com/org/repo.git");
+    expect(written).not.toContain("secret1234567890");
+  });
 });

@@ -89,6 +89,10 @@ function textResult(text: string, isError = false) {
   };
 }
 
+function appendStderrWarning(text: string, stderr: string): string {
+  return stderr ? `${text}\n\n${stderr}` : text;
+}
+
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
@@ -138,6 +142,7 @@ export default function memexExtension(pi: ExtensionAPI) {
           "You have a Zettelkasten memory system available via the `memex_recall` tool.",
           "**BEFORE starting work**, call `memex_recall` (with no query) to load your keyword index.",
           "Then read relevant cards with `memex_read` and search with `memex_search`.",
+          "Never include actual secrets, credentials, tokens, or exact secret file contents in memex query/body arguments; use abstract descriptions or redacted examples.",
           "",
           "**AFTER completing the task**, if you learned something non-obvious,",
           "call `memex_retro` to save atomic insight cards for future sessions.",
@@ -178,11 +183,11 @@ export default function memexExtension(pi: ExtensionAPI) {
     name: "memex_recall",
     label: "Memex Recall",
     description:
-      "IMPORTANT: Call at the START of every task. Retrieves your persistent Zettelkasten memory — knowledge cards from previous sessions. Returns the keyword index (if exists) or card list. Optionally search by query.",
+      "IMPORTANT: Call at the START of every task. Retrieves your persistent Zettelkasten memory — knowledge cards from previous sessions. Returns the keyword index (if exists) or card list. USAGE: Call with NO query first to get the index. Only use query when you need to find specific cards — pass 1-3 short keywords, NOT sentences or task summaries. Keyword search uses AND logic (every token must appear in the same card). For natural-language search, use memex_search with semantic=true instead. Never include actual secrets, credentials, tokens, or exact secret file contents in query.",
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
-          description: "Optional search query to find specific cards",
+          description: "1-3 short keywords (AND logic — every token must appear). Do NOT pass sentences or task summaries. Omit for task-start recall. Examples: 'pptx migration', 'auth gotcha'. Do not include raw secrets.",
         }),
       ),
     }),
@@ -193,7 +198,7 @@ export default function memexExtension(pi: ExtensionAPI) {
       if (query) {
         const res = await memex(["search", query, "--limit", "10"]);
         if (!res.ok) return textResult(res.stderr, true);
-        return textResult(res.stdout || "No cards found.");
+        return textResult(appendStderrWarning(res.stdout || "No cards found.", res.stderr));
       }
 
       // Try index first, then fall back to listing all cards
@@ -218,7 +223,7 @@ export default function memexExtension(pi: ExtensionAPI) {
     name: "memex_retro",
     label: "Memex Retro",
     description:
-      "IMPORTANT: Call at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings. Handles frontmatter automatically.",
+      "IMPORTANT: Call at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings. Never save actual secrets, credentials, tokens, or exact secret file contents. Handles frontmatter automatically.",
     parameters: Type.Object({
       slug: Type.String({
         description:
@@ -262,7 +267,7 @@ export default function memexExtension(pi: ExtensionAPI) {
       const res = await memex(["write", slug], content);
       if (!res.ok) return textResult(res.stderr, true);
       retroDone = true;
-      return textResult(`Card '${slug}' saved successfully.`);
+      return textResult(appendStderrWarning(`Card '${slug}' saved successfully.`, res.stderr));
     },
   });
 
@@ -274,22 +279,26 @@ export default function memexExtension(pi: ExtensionAPI) {
     name: "memex_search",
     label: "Memex Search",
     description:
-      "Full-text search memory cards. Omit query to list all cards.",
+      "Full-text search memory cards. Omit query to list all cards. Never include actual secrets, credentials, tokens, or exact secret file contents in query.",
     parameters: Type.Object({
       query: Type.Optional(Type.String({ description: "Search keyword" })),
       limit: Type.Optional(
         Type.Number({ description: "Max results (default 10)" }),
       ),
+      semantic: Type.Optional(
+        Type.Boolean({ description: "Use embedding-based semantic search" }),
+      ),
     }),
     async execute(_toolCallId, params) {
-      const { query, limit } = params as { query?: string; limit?: number };
+      const { query, limit, semantic } = params as { query?: string; limit?: number; semantic?: boolean };
       const args = ["search"];
       if (query) args.push(query);
       if (limit) args.push("--limit", String(limit));
+      if (semantic) args.push("--semantic");
 
       const res = await memex(args);
       if (!res.ok) return textResult(res.stderr, true);
-      return textResult(res.stdout || "No cards found.");
+      return textResult(appendStderrWarning(res.stdout || "No cards found.", res.stderr));
     },
   });
 
@@ -320,7 +329,7 @@ export default function memexExtension(pi: ExtensionAPI) {
     name: "memex_write",
     label: "Memex Write",
     description:
-      "Write or update a memory card. Content should include YAML frontmatter + markdown body.",
+      "Write or update a memory card. Content should include YAML frontmatter + markdown body. Never write actual secrets, credentials, tokens, or exact secret file contents.",
     parameters: Type.Object({
       slug: Type.String({
         description: "Card slug in kebab-case",
@@ -334,7 +343,7 @@ export default function memexExtension(pi: ExtensionAPI) {
       const { slug, content } = params as { slug: string; content: string };
       const res = await memex(["write", slug], content);
       if (!res.ok) return textResult(res.stderr, true);
-      return textResult(`Card '${slug}' written successfully.`);
+      return textResult(appendStderrWarning(`Card '${slug}' written successfully.`, res.stderr));
     },
   });
 

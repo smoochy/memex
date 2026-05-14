@@ -64,6 +64,25 @@ When JWT revoke fails, use cache as fallback. See [[jwt-migration]].`
     expect(result.output).toContain("[[stateless-auth]]");
   });
 
+  it("allows security architecture queries without raw secrets", async () => {
+    const result = await searchCommand(store, "JWT token rotation Bearer token");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("rejects queries containing actual token values", async () => {
+    const result = await searchCommand(store, "sk-proj-abc123DEF456ghi789JKL012mno345PQR");
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Sensitive input rejected");
+    expect(result.output).not.toContain("sk-proj");
+  });
+
+  it("warns but allows credential path queries", async () => {
+    const result = await searchCommand(store, "gitee auth workflow ~/.claude/.env");
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("Warning:");
+    expect(result.output).toContain("credential path");
+  });
+
   it("returns empty for no matches", async () => {
     const result = await searchCommand(store, "nonexistent-term-xyz");
     expect(result.output).toBe("");

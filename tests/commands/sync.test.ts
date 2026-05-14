@@ -46,6 +46,17 @@ describe("syncCommand", () => {
     expect(result.output).toContain(bare);
   });
 
+  it("status masks tokenized remote URLs", async () => {
+    await writeFile(
+      join(home, ".sync.json"),
+      JSON.stringify({ remote: "https://user:secret1234567890@git.example.com/cards.git", adapter: "git", auto: false }),
+    );
+    const result = await syncCommand(home, { status: true });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("https://user:<redacted>@git.example.com/cards.git");
+    expect(result.output).not.toContain("secret1234567890");
+  });
+
   it("auto on/off toggles config", async () => {
     await syncCommand(home, { init: true, remote: bare });
     await syncCommand(home, { auto: "on" });

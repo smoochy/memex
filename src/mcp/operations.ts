@@ -11,6 +11,7 @@ import { stringifyFrontmatter } from "../lib/parser.js";
 import { GitAdapter, readSyncConfig } from "../lib/sync.js";
 import { flomoPushCommand, parseFlomoHtml } from "../commands/flomo.js";
 import type { FlomoMemo } from "../commands/flomo.js";
+import { formatWarnings } from "../lib/sensitive-input.js";
 import { z } from "zod";
 
 export function registerOperations(
@@ -21,11 +22,16 @@ export function registerOperations(
   getClientName: () => string,
 ): void {
   const INDEX_CHAR_LIMIT = 4000;
+
+  function textResult(text: string, isError = false) {
+    return { content: [{ type: "text" as const, text }], isError };
+  }
+
   // ---- recall ----
   server.registerTool("memex_recall", {
-    description: "IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory — knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. Optionally search by query. Without calling this first, you will miss context from prior sessions and repeat past mistakes.",
+    description: "IMPORTANT: You MUST call this at the START of every new task or conversation, BEFORE doing any work. This retrieves your persistent memory — knowledge cards from previous sessions with [[bidirectional links]]. Returns the keyword index (if exists) or card list. USAGE: Call with NO query first to get the index. Only use query when you need to find specific cards — pass 1-3 short keywords, NOT sentences or task summaries. Keyword search uses AND logic (every token must appear in the same card). For natural-language search, use memex_search with semantic=true instead. Never include actual secrets, credentials, tokens, or exact secret file contents in query.",
     inputSchema: z.object({
-      query: z.string().optional().describe("Optional search query to find specific cards"),
+      query: z.string().optional().describe("1-3 short keywords (AND logic — every token must appear). Do NOT pass sentences or task summaries. Omit for task-start recall. Examples: 'pptx migration', 'auth gotcha'. Do not include raw secrets."),
       category: z.string().optional().describe("Filter by frontmatter category"),
       tag: z.string().optional().describe("Filter by frontmatter tag"),
       author: z.string().optional().describe("Filter by frontmatter author/source"),
@@ -41,7 +47,7 @@ export function registerOperations(
 
     if (query) {
       const result = await searchCommand(store, query, { limit: 10, filter });
-      return { content: [{ type: "text" as const, text: result.output || "No cards found." }] };
+      return textResult(result.output || "No cards found.", result.exitCode !== 0);
     }
 
     // Try index first, fall back to card list
@@ -63,11 +69,11 @@ export function registerOperations(
 
   // ---- retro ----
   server.registerTool("memex_retro", {
-    description: "IMPORTANT: Call this at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings — things that would be useful in future sessions (architecture decisions, gotchas, patterns discovered, bug root causes). Handles frontmatter, source tagging, and cross-device sync automatically.",
+    description: "IMPORTANT: Call this at the END of every task to save what you learned. Write one atomic insight per card with [[wikilinks]] to related cards. Only save non-obvious learnings — things that would be useful in future sessions (architecture decisions, gotchas, patterns discovered, bug root causes). Never save actual secrets, credentials, tokens, or exact secret file contents; use redacted examples instead. Handles frontmatter, source tagging, and cross-device sync automatically.",
     inputSchema: z.object({
       slug: z.string().describe("Card slug in kebab-case"),
       title: z.string().describe("Card title (keep short, ≤60 chars, noun phrase not full sentence)"),
-      body: z.string().describe("Card body in markdown with [[wikilinks]]"),
+      body: z.string().describe("Card body in markdown with [[wikilinks]]. Do not include raw secrets or credential values."),
       category: z.string().optional().describe("Category (e.g. frontend, architecture, devops, bugfix)"),
     }),
   }, async ({ slug, title, body, category }) => {
@@ -84,7 +90,7 @@ export function registerOperations(
 
     const result = await writeCommand(store, slug, content);
     if (!result.success) {
-      return { content: [{ type: "text" as const, text: result.error! }], isError: true };
+      return textResult(result.error!, true);
     }
 
     await hooks.run("post", "retro");
@@ -95,7 +101,8 @@ export function registerOperations(
       ? "\n\nTip: To sync cards across devices, tell the user to run in terminal: npx @touchskyer/memex sync --init && npx @touchskyer/memex sync on"
       : "";
 
-    return { content: [{ type: "text" as const, text: `Card '${slug}' saved.${tip}` }] };
+    const warningText = result.warnings?.length ? `\n\n${formatWarnings(result.warnings)}` : "";
+    return textResult(`Card '${slug}' saved.${warningText}${tip}`);
   });
 
   // ---- organize ----

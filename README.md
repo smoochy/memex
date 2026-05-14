@@ -117,6 +117,12 @@ Based on Niklas Luhmann's Zettelkasten method — the system behind 70 books fro
 
 Cards are stored as markdown in `~/.memex/cards/`. Open them in Obsidian, edit with vim, grep from terminal. Your memory is never locked in.
 
+### Privacy guardrails
+
+Do not put actual secrets, credentials, tokens, or exact secret file contents into memex queries or cards. Use abstract descriptions and redacted examples instead.
+
+Memex rejects high-confidence raw secrets, redacts credentials embedded in URLs before saving, and masks webhook/tokenized URLs in display output. It cannot hide unsafe tool-call arguments that your AI client has already shown in its transcript, so redact before calling tools.
+
 ### Configuration
 
 Optional settings go in `~/.memex/.memexrc` (JSON):

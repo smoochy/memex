@@ -196,4 +196,5 @@ Confirm:
 - **No silent mutation**: Never update an existing card without the preview step.
 - **Preserve frontmatter**: When updating, copy all existing frontmatter fields. Only change fields explicitly previewed.
 - **Metadata as strings**: Use comma-separated strings for keywords/tags, not arrays.
+- **No raw secrets**: Never search for or write actual secrets, credentials, tokens, or exact secret file contents. Use redacted examples and abstract descriptions instead.
 - **Fallback**: If the feature flag is disabled, use `memex-retro` instead.

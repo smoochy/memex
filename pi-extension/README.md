@@ -90,3 +90,5 @@ The extension registers bundled skills with Pi's resource discovery:
 The extension uses `node:child_process.spawn` to call the globally installed `memex` CLI. This avoids dependency management — the extension is a single TypeScript file with zero npm dependencies (only Pi built-in imports).
 
 All cards are stored in `~/.memex/cards/` and shared with other memex clients (Claude Code, VS Code, Cursor, etc.).
+
+Do not include actual secrets, credentials, tokens, or exact secret file contents in memex tool arguments. Use abstract descriptions and redacted examples instead.
